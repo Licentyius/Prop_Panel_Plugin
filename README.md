@@ -6,7 +6,7 @@ This will fully require MH2 Plugin panel expansion and up in order to operate.
 https://github.com/Makehuman-2/Official_MH2-Plugin-Release   
     
     
-<img src="reference/prop_tests1.png" alt="Demo Image" width="500">
+<img src="resource/prop_tests1.png" alt="Demo Image" width="500">
   
 This widget will open only as a plugin but will interact with the main window for prop placement and rendering.  
 There should be prop states relating to holding, placed, arranged(locked), and used ultimately.  
