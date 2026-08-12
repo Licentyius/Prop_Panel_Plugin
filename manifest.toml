@@ -1,0 +1,17 @@
+[extension]
+id = "official_prop_panel"
+name = "Prop Studio Room Suite"
+version = "2.0.0"
+author = "Elvaerwyn_MH2"
+description = "A prop plugin for Makehuman 2 with Docking."
+
+[runtime]
+package_dirs = ["."]
+sys_paths = ["."]
+
+[project.entry-points]
+prop_panel = "mh2_official_tools.prop_panel:initialize_extension"
+
+
+
+
