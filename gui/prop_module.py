@@ -33,6 +33,30 @@ if _plugin_root not in sys.path:
     sys.path.insert(0, _plugin_root)
 
 from ..opengl.prop_manager import MultiPropManager
+import random
+import time
+
+class MH2PropParticle:
+    """A single visible particle dot spawned by your emitter prop."""
+    def __init__(self, origin_pos, color=None):
+        self.x = float(origin_pos[0])
+        self.y = float(origin_pos[1])
+        self.z = float(origin_pos[2])
+        self.vx = random.uniform(-0.3, 0.3)
+        self.vy = random.uniform(1.2, 2.5) 
+        self.vz = random.uniform(-0.3, 0.3)
+        self.color = color if color else [1.0, 0.4, 0.0, 1.0]
+        self.birth_time = time.time()
+        self.lifespan = random.uniform(0.6, 1.5)
+
+    def update(self, dt):
+        self.x += self.vx * dt
+        self.y += self.vy * dt
+        self.z += self.vz * dt
+        self.vy -= 1.8 * dt
+
+    def is_dead(self):
+        return (time.time() - self.birth_time) > self.lifespan
 
 class MHRoomFloorGeometry:
     """Dynamically constructs an isolated 4-corner floor square mesh overlay."""
@@ -191,6 +215,7 @@ class PropManLeftPanel(QWidget):
         super().__init__()
         self.glob = parent.glob
         self.env = self.glob.env
+        self.parent_frame = parent # Reference back to track dock dynamic properties
         
         # Read the manager pointer if it exists, or fall back to None until wired below
         self.propman = getattr(parent, 'prop_manager', None)
@@ -199,9 +224,19 @@ class PropManLeftPanel(QWidget):
         if self.propman:
             self.propman.setLeftPanel(self)
 
-        master_panel_flow = QVBoxLayout(self)
-        master_panel_flow.setContentsMargins(6, 6, 6, 6)
+        panel_outer_layout = QVBoxLayout(self)
+        panel_outer_layout.setContentsMargins(0, 0, 0, 0)
 
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        panel_outer_layout.addWidget(scroll_area)
+
+        scroll_content_host = QWidget()
+        scroll_area.setWidget(scroll_content_host)
+
+        master_panel_flow = QVBoxLayout(scroll_content_host)
+        master_panel_flow.setContentsMargins(6, 6, 6, 6)
         master_panel_flow.setSpacing(6)
 
         self.controls_group = MHGroupBox("Transform")
@@ -239,6 +274,23 @@ class PropManLeftPanel(QWidget):
         self.controls_group.setLayout(self.form)
         master_panel_flow.addWidget(self.controls_group)
 
+        self.emitter_context_group = MHGroupBox("Dynamic Emitter Modifiers")
+        context_layout = QVBoxLayout()
+
+        self.ghost_mode_cb = QCheckBox("Hide Prop Mesh (Pure Ghost Emitter Only)")
+        self.ghost_mode_cb.toggled.connect(self.on_ghost_mode_toggled)
+        context_layout.addWidget(self.ghost_mode_cb)
+
+        self.active_emit_cb = QCheckBox("Enable Active Particle Emission Loop")
+        self.active_emit_cb.setChecked(True)
+        context_layout.addWidget(self.active_emit_cb)
+
+        self.emitter_context_group.setLayout(context_layout)
+        master_panel_flow.addWidget(self.emitter_context_group)
+        
+        self.emitter_context_group.setVisible(True) # Change this from False to True!
+
+
         self.inventory_table = QTableWidget()
         self.inventory_table.setColumnCount(3)
         self.inventory_table.setHorizontalHeaderLabels(["Name", "Status", "Action"])
@@ -266,8 +318,10 @@ class PropManLeftPanel(QWidget):
 
         self.prop_list = QListWidget()
         self.prop_list.setViewMode(QListWidget.ListMode)
+        self.prop_list.setMinimumHeight(120)  # Safe size target for list rows
         self.prop_list.currentItemChanged.connect(self.select_prop)
         master_panel_flow.addWidget(self.prop_list)
+
 
         if hasattr(parent, 'equipment') and "props" in parent.equipment:
             img_sel = parent.equipment["props"].get("func", None)
@@ -313,6 +367,57 @@ class PropManLeftPanel(QWidget):
 
         master_panel_flow.addStretch(1)
 
+    def select_prop(self, current, previous):
+        """Monitors item row selections inside your layout table to toggle control panels on the fly."""
+        if not current or not self.propman:
+            self.emitter_context_group.setVisible(False)
+            return
+
+        # 1. Extract raw string data from your active list widget row item
+        # E.g., "[O] ball | State: [EQUIPPED] | Parent: hand_R"
+        raw_text = current.text()
+        print(f"[Prop Studio UI Check] Selected row entry text target string: '{raw_text}'")
+
+        # 2. Extract the unformatted prop ID out of the raw string prefix labels safely
+        if "| State:" in raw_text:
+            left_segment = raw_text.split("|")[0]
+            prop_id = left_segment.replace("[O]", "").strip()
+        else:
+            prop_id = raw_text.strip()
+
+        print(f"[Prop Studio UI Check] Cleaned lookup ID key string: '{prop_id}'")
+
+        # 3. Pull the active live model mesh instance from your plugin prop manager structures
+        current_prop = self.propman.setCurrentProp(prop_id)
+        if current_prop: 
+            self.setValueFromProp(current_prop)
+
+        # Update our focus tracker parameter across global dock widget attributes
+        global _standalone_studio_dock_instance
+        if _standalone_studio_dock_instance:
+            _standalone_studio_dock_instance.setProperty("active_prop_id", prop_id)
+
+        # Your log verified that 'object_type' evaluates to 'EMITTER' perfectly!
+        if hasattr(current_prop, 'object_type') and current_prop.object_type == "EMITTER":
+            
+            # Map saved parameters straight onto the checkboxes while cutting signals loops
+            self.ghost_mode_cb.blockSignals(True)
+            self.ghost_mode_cb.setChecked(not getattr(current_prop, 'is_mesh_visible', True))
+            self.ghost_mode_cb.blockSignals(False)
+
+            self.active_emit_cb.setChecked(getattr(current_prop, 'is_emitting', True))
+            
+            # FORCE WIDGET CONTAINER VISIBILITY TARGET STATE TO TRUE!
+            self.emitter_context_group.setVisible(True)
+            print(f"[Prop Studio UI] UI intersection check passed. Displaying emitter tools group widget.")
+        else:
+            # Hide modifier blocks if the user switches to static decor items
+            self.emitter_context_group.setVisible(False)
+
+        # Trigger canvas repaint loops
+        if hasattr(self.glob, 'openGLWindow') and self.glob.openGLWindow:
+            self.glob.openGLWindow.update()
+
 
     def refresh_inventory_list(self):
         """Clears and rebuilds the inventory table view rows."""
@@ -336,12 +441,69 @@ class PropManLeftPanel(QWidget):
             action_item = QTableWidgetItem("Click icon to add")
             self.inventory_table.setItem(index, 2, action_item)
 
-    def select_prop(self, current, previous):
-        if not current or not self.propman: 
+
+    def on_ghost_mode_toggled(self, checked):
+        """Callback loop that overwrites your data folder JSON parameters on the fly."""
+        global _standalone_studio_dock_instance
+        if not _standalone_studio_dock_instance:
             return
+
+        active_id = _standalone_studio_dock_instance.property("active_prop_id")
+        loaded_manifest = _standalone_studio_dock_instance.property("manifest_data") or {}
+
+        if active_id and active_id in loaded_manifest:
+            is_visible = not checked
+            
+            # 1. Update memory configuration tracking structures immediately
+            loaded_manifest[active_id]["is_mesh_visible"] = is_visible
+            
+            # 2. Call your local core JSON saver tool to write changes back to your data/ folder
+            from core.json_io import save_prop_changes_to_json
+            save_prop_changes_to_json(active_id, {"is_mesh_visible": is_visible})
+            print(f"[Prop Studio Context] Ghost option updated and saved for item: {active_id}")
+
+            # 3. Request viewport screen redraw transformations
+            if hasattr(self.glob, 'openGLWindow') and self.glob.openGLWindow:
+                self.glob.openGLWindow.update()
+
+
+    def select_prop(self, current, previous):
+        """Selects the asset via the prop manager and checks for emitter characteristics."""
+        if not current or not self.propman: 
+            self.emitter_context_group.setVisible(False)
+            return
+
+        # 1. Fallback to your original manager asset selection code
         current_prop = self.propman.setCurrentProp(current.text())
         if current_prop: 
             self.setValueFromProp(current_prop)
+
+        # 2. Read the dynamic manifest mapping to check if it's an emitter
+        prop_id = current.text()
+        global _standalone_studio_dock_instance
+        loaded_manifest = {}
+        if _standalone_studio_dock_instance:
+            loaded_manifest = _standalone_studio_dock_instance.property("manifest_data") or {}
+
+        asset_profile = loaded_manifest.get(prop_id, {})
+
+        if asset_profile.get("type") == "EMITTER":
+            if _standalone_studio_dock_instance:
+                _standalone_studio_dock_instance.setProperty("active_prop_id", prop_id)
+            
+            # Sync the checkboxes while disabling signals to prevent recursive write triggers
+            self.ghost_mode_cb.blockSignals(True)
+            self.ghost_mode_cb.setChecked(not asset_profile.get("is_mesh_visible", True))
+            self.ghost_mode_cb.blockSignals(False)
+
+            self.active_emit_cb.setChecked(asset_profile.get("is_emitting", True))
+            
+            # Show the emitter UI tools under the transforms layout box
+            self.emitter_context_group.setVisible(True)
+        else:
+            # Hide the tools if it's a standard prop mesh item
+            self.emitter_context_group.setVisible(False)
+
 
     def leave(self):
         if hasattr(self, 'room_floor_mesh') and self.room_floor_mesh: 
@@ -613,6 +775,63 @@ class PropManagerPanel(MHGroupBox):
         self.state_heartbeat_clock = QTimer(self)
         self.state_heartbeat_clock.timeout.connect(self.pump_state_machine_tick)
         self.state_heartbeat_clock.start(50)
+
+        def process_prop_emission():
+            props_list = getattr(self.glob, 'custom_props_list', [])
+            if not props_list:
+                return
+
+            for prop in props_list:
+                # If the item isn't an EMITTER or the checkbox is turned off, skip it
+                if getattr(prop, 'object_type', 'STATIC') != 'EMITTER':
+                    continue
+                
+                # Check if particle emission loop checkbox is checked in the left panel
+                if self.leftPanel and not self.leftPanel.active_emit_cb.isChecked():
+                    continue
+
+                # Initialize a private particle pool array inside the prop object if it doesn't have one
+                if not hasattr(prop, "particles_pool"):
+                    prop.particles_pool = []
+
+                max_particles = getattr(prop, 'max_particles', 200)
+
+                # 1. Spawn new particle objects at the prop's current position
+                if len(prop.particles_pool) < max_particles:
+                    for _ in range(3):
+                        # Pull coordinates and custom particle color
+                        p_color = getattr(prop, 'particle_color', [1.0, 0.4, 0.0, 1.0])
+                        new_particle = MH2PropParticle(prop.position, p_color)
+                        prop.particles_pool.append(new_particle)
+
+                # 2. RUN DIRECT OPENGL CANVAS RENDER DRAWS FOR ACTIVE POINTS
+                gl.glPushMatrix()
+                gl.glPushAttrib(gl.GL_POINT_BIT | gl.GL_CURRENT_BIT)
+                gl.glDisable(gl.GL_LIGHTING)
+                
+                gl.glPointSize(6.0) # Thickness of the point pixel spots
+
+                gl.glBegin(gl.GL_POINTS)
+                for p in prop.particles_pool:
+                    p.update(0.016) # Progress physics forward using 60fps delta-time step
+                    gl.glColor4f(p.color[0], p.color[1], p.color[2], p.color[3])
+                    gl.glVertex3f(p.x, p.y, p.z) # Plot the pixel vertex onto your room canvas
+                gl.glEnd()
+
+                gl.glPopAttrib()
+                gl.glPopMatrix()
+
+                # 3. Clean spent particles out of memory tracking pools
+                prop.particles_pool = [p for p in prop.particles_pool if not p.is_dead()]
+
+            # Force your viewport canvas grid to refresh the frame paint loop
+            if hasattr(self.glob, 'openGLWindow') and self.glob.openGLWindow:
+                self.glob.openGLWindow.update()
+
+        # Connect the loop function to a 60FPS high-frequency background clock trigger
+        self.animation_clock = QTimer(self)
+        self.animation_clock.timeout.connect(process_prop_emission)
+        self.animation_clock.start(16)
 
     def execute_remove_all_button_logic(self):
         """Wipes the active workspace cleanly and resets state parameters."""
@@ -1186,17 +1405,37 @@ class PropManagerPanel(MHGroupBox):
         new_prop.obj = obj
         new_prop.path = target_path.replace("\\", "/")
         
-        if "emitter" in name or "particle" in name:
+        # Add ANY item word from your grid here to turn it into an emitter!
+        # E.g., if you choose the 'ball' or 'diamond' icon inside your interface:
+        emitter_keywords = ["ball", "diamond", "cocoon", "torch", "wisp"]
+        
+        if any(keyword in name.lower() for keyword in emitter_keywords):
             new_prop.object_type = 'EMITTER'
-            print(f"[Prop Studio Core] Asset type recognized: Initialized as EMITTER entity.")
+            new_prop.max_particles = 300
+            new_prop.is_emitting = True
+            
+            # Read your Left Panel checkbox configuration rules
+            if self.leftPanel:
+                # If 'Hide Prop Mesh' is checked, we force it to be an invisible ghost object
+                is_mesh_visible = not self.leftPanel.ghost_mode_cb.isChecked()
+                new_prop.is_mesh_visible = is_mesh_visible
+                new_prop.set_visibility(is_mesh_visible)
+            else:
+                new_prop.is_mesh_visible = True
+
+            print(f"[Prop Studio Core] Dynamic keyword intercept pass successful!")
+            print(f"[Prop Studio Core] '{name}' has been successfully upgraded to an EMITTER.")
         else:
+            # Traditional fallback path for standard solid static props
             new_prop.object_type = 'STATIC'
+            new_prop.is_mesh_visible = True
 
         new_prop.position = safe_pos
         new_prop.rotation = safe_rot
         new_prop.scale = [s_val, s_val, s_val]
         
-        new_prop.visible = initial_vis
+        new_prop.visible = initial_vis if new_prop.is_mesh_visible else False
+
         new_prop.use_parenting = use_parent
         new_prop.parent_bone = target_bone
 
@@ -1236,6 +1475,7 @@ class PropManagerPanel(MHGroupBox):
         self.current_prop.rotation = new_rot
         self.current_prop.scale = scl
         self.update_prop()
+
 
     def update_prop(self):
         """Pushes raw numerical properties back to update active compiled shaders."""
@@ -1407,10 +1647,13 @@ class PropManagerPanel(MHGroupBox):
 
 _standalone_studio_dock_instance = None
 
-def initialize_prop_studio(app_reference, glob_reference):
+def initialize_prop_studio(app_reference, glob_reference, **kwargs):
     """Official decoupled entry point executed via your plugin panels."""
     global _standalone_studio_dock_instance
     import os
+
+    # 1. Grab your dynamic configuration dictionary safely out of the args stream
+    manifest_data = kwargs.get("manifest_data", {})
 
     main_window = None
     for widget in QApplication.topLevelWidgets():
@@ -1436,6 +1679,10 @@ def initialize_prop_studio(app_reference, glob_reference):
     _standalone_studio_dock_instance.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable | QDockWidget.DockWidgetClosable)
     _standalone_studio_dock_instance.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea | Qt.BottomDockWidgetArea)
     _standalone_studio_dock_instance.resize(1100, 850)
+
+    # 2. Attach the raw manifest data directly to the workspace instance window
+    _standalone_studio_dock_instance.setProperty("manifest_data", manifest_data)
+    print(f"[Prop Studio] Initialized layout environment. Embedded data options count: {len(manifest_data)}")
 
     def apply_dock_layout_lock(should_lock=True):
         if _standalone_studio_dock_instance:
@@ -1465,9 +1712,83 @@ def initialize_prop_studio(app_reference, glob_reference):
     right_scroll_wrapper.setWidgetResizable(True)
     right_scroll_wrapper.setMinimumWidth(450)
 
-    left_dummy = QLabel("Loading Left Control Elements...")
-    left_dummy.setAlignment(Qt.AlignCenter)
-    left_scroll_wrapper.setWidget(left_dummy)
+    # =============================================================
+    # NEW CODE START: THIS REPLACES THE OLD LEFT_DUMMY LINES
+    # =============================================================
+    left_control_panel = QWidget()
+    left_layout = QVBoxLayout(left_control_panel)
+    left_layout.setContentsMargins(6, 6, 6, 6)
+
+    # 1. Create the interactive selection list box
+    left_layout.addWidget(QLabel("<b>Available Studio Props:</b>"))
+    prop_list_widget = QListWidget()
+    prop_list_widget.setObjectName("prop_studio_asset_selector_list")
+    left_layout.addWidget(prop_list_widget)
+
+    # 2. Create the toggle checkbox group box container
+    emitter_context_group = MHGroupBox("Dynamic Emitter Modifiers")
+    context_layout = QVBoxLayout()
+
+    ghost_mode_cb = QCheckBox("Hide Prop Mesh (Pure Ghost Emitter Only)")
+    context_layout.addWidget(ghost_mode_cb)
+
+    active_emit_cb = QCheckBox("Enable Active Particle Emission Loop")
+    active_emit_cb.setChecked(True)
+    context_layout.addWidget(active_emit_cb)
+
+    emitter_context_group.setLayout(context_layout)
+    left_layout.addWidget(emitter_context_group)
+    
+    # Keep emitter controls hidden until a user clicks on an emitter prop
+    emitter_context_group.setVisible(False)
+
+    # Put this whole new control panel into your left scroll wrapper
+    left_scroll_wrapper.setWidget(left_control_panel)
+
+    # 3. Pull your raw JSON options right out of the window property storage
+    loaded_manifest = _standalone_studio_dock_instance.property("manifest_data") or {}
+
+    # Populate the list with the text names from your file
+    for prop_id, prop_info in loaded_manifest.items():
+        list_item = QListWidgetItem(prop_info.get("name", prop_id))
+        list_item.setData(Qt.UserRole, prop_id)
+        prop_list_widget.addItem(list_item)
+
+    # 4. Handle what happens when an item is selected from the list
+    def on_prop_selection_changed():
+        current_item = prop_list_widget.currentItem()
+        if not current_item:
+            return
+            
+        selected_id = current_item.data(Qt.UserRole)
+        asset_profile = loaded_manifest.get(selected_id, {})
+        
+        # Track our currently highlighted item ID on the dock window frame
+        _standalone_studio_dock_instance.setProperty("active_prop_id", selected_id)
+
+        if asset_profile.get("type") == "EMITTER":
+            # Map saved parameters straight out of the JSON data onto the checkboxes
+            ghost_mode_cb.setChecked(not asset_profile.get("is_mesh_visible", True))
+            active_emit_cb.setChecked(asset_profile.get("is_emitting", True))
+            emitter_context_group.setVisible(True)
+        else:
+            emitter_context_group.setVisible(False)
+
+    prop_list_widget.itemSelectionChanged.connect(on_prop_selection_changed)
+
+    # 5. Connect the ghost mode checkbox directly to your file saving core tool
+    def on_ghost_toggled(checked):
+        active_id = _standalone_studio_dock_instance.property("active_prop_id")
+        if active_id and active_id in loaded_manifest:
+            is_visible = not checked
+            loaded_manifest[active_id]["is_mesh_visible"] = is_visible
+            
+            # This reaches across to your file writer module and updates the JSON
+            from core.json_io import save_prop_changes_to_json
+            save_prop_changes_to_json(active_id, {"is_mesh_visible": is_visible})
+            print(f"[Prop Studio Context] Ghost option updated and saved for item: {active_id}")
+
+    ghost_mode_cb.toggled.connect(on_ghost_toggled)
 
     right_dummy = QLabel("Loading 3D Room Grid Viewport...")
     right_dummy.setAlignment(Qt.AlignCenter)
@@ -1494,6 +1815,7 @@ def initialize_prop_studio(app_reference, glob_reference):
                 top_frame.setWindowFlags(Qt.Window | Qt.WindowMinMaxButtonsHint | Qt.WindowCloseButtonHint)
                 top_frame.show()
     QTimer.singleShot(150, force_minimize_buttons)
+
 
     def dynamic_dock_toggle_trigger():
         if _standalone_studio_dock_instance:

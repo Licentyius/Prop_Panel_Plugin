@@ -16,6 +16,9 @@ from OpenGL import GL as gl
 
 from .propstate import PropStateMachine
 from .roommap import MHRoomLayoutMap
+from core.json_manager import load_props_manifest, update_prop_json_entry
+from core.json_io import save_prop_changes_to_json
+from core.emitter_prop import MH2LiveEmitterProp
 from core.debug import dumper
 
 class MHRoomFloorGeometry:
@@ -265,6 +268,8 @@ class PropManLeftPanel(QVBoxLayout):
         self.prop_list.currentItemChanged.connect(self.select_prop)
         self.addWidget(self.prop_list)
 
+        self.build_emitter_ui_context(parent_layout)
+
         if hasattr(parent, 'equipment') and "props" in parent.equipment:
             img_sel = parent.equipment["props"].get("func", None)
             if img_sel:
@@ -503,6 +508,52 @@ class PropManLeftPanel(QVBoxLayout):
             sb.setSingleStep(0.1)
         sb.setDecimals(3)
         return sb
+
+    def build_emitter_ui_context(self, parent_layout):
+        """Creates the absolute layout structure for your particle systems"""
+        # GroupBox container keeps the context grouped visually
+        self.emitter_context_box = QtWidgets.QGroupBox("Editable Emitter Modifiers")
+        ctx_layout = QtWidgets.QVBoxLayout()
+
+        # Context Checkbox: Pure Ghost Controller Switch
+        self.ghost_mode_cb = QtWidgets.QCheckBox("Hide Object Mesh (Pure Ghost)")
+        self.ghost_mode_cb.toggled.connect(self.on_ghost_cb_clicked)
+        ctx_layout.addWidget(self.ghost_mode_cb)
+
+        # Context Slider: Particle Multiplier Limit
+        ctx_layout.addWidget(QtWidgets.QLabel("Particle Array Limit:"))
+        self.density_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.density_slider.setRange(20, 1000)
+        self.density_slider.valueChanged.connect(self.on_density_slider_moved)
+        ctx_layout.addWidget(self.density_slider)
+
+        self.emitter_context_box.setLayout(ctx_layout)
+        parent_layout.addWidget(self.emitter_context_box)
+        
+        # SENSE LOCK: Hide the context menu by default on boot up!
+        self.emitter_context_box.setVisible(False)
+
+    # =============================================================
+    # UI Interactions: Changes state variables AND writes the data
+    # =============================================================
+    def on_ghost_cb_clicked(self, checked):
+        if self.active_prop_object:
+            is_visible = not checked
+            self.active_prop_object.is_mesh_visible = is_visible
+            
+            # Rewrite raw property values back to your data folder json file
+            save_prop_changes_to_json(self.active_prop_object.prop_id, {
+                "is_mesh_visible": is_visible
+            })
+
+    def on_density_slider_moved(self, value):
+        if self.active_prop_object:
+            self.active_prop_object.max_particles = value
+            
+            # Overwrite the numeric field parameter inside your JSON file
+            save_prop_changes_to_json(self.active_prop_object.prop_id, {
+                "particle_count": value
+            })
 
 class PropManagerPanel(MHGroupBox):
     def __init__(self, parent):
@@ -1108,3 +1159,70 @@ class PropManagerPanel(MHGroupBox):
                 if self.leftPanel:
                     self.leftPanel.setValueFromProp(self.current_prop)
                 self._trigger_viewport_redraw()
+
+class CoreMH2PropPanel(QtWidgets.QWidget):
+    def __init__(self, parent_layout):
+        super().__init__()
+        self.active_prop_object = None
+        self.manifest_data = load_props_manifest()
+        
+        self.inject_ui_into_panel(parent_layout)
+
+    def inject_ui_into_panel(self, layout):
+        """Builds controls directly inline with your current Prop Panel setup"""
+        self.emitter_box = QtWidgets.QGroupBox("Live Emitter Configurations (JSON Connected)")
+        v_layout = QtWidgets.QVBoxLayout()
+
+        # Checkbox 1: Toggle Object Mesh Visibility (Ghost Mode Selector)
+        self.hide_mesh_cb = QtWidgets.QCheckBox("Hide Object Mesh (Pure Ghost Emitter)")
+        self.hide_mesh_cb.toggled.connect(self.on_visibility_toggled)
+        v_layout.addWidget(self.hide_mesh_cb)
+
+        # Slider 1: Dynamic Max Particle Adjuster
+        v_layout.addWidget(QtWidgets.QLabel("Max Particles Density:"))
+        self.count_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.count_slider.setRange(50, 1000)
+        self.count_slider.valueChanged.connect(self.on_density_slider_changed)
+        v_layout.addWidget(self.count_slider)
+
+        self.emitter_box.setLayout(v_layout)
+        layout.addWidget(self.emitter_box)
+        
+        # Hide editing options until an asset marked as EMITTER gets selected
+        self.emitter_box.setVisible(False)
+
+    def select_prop_by_id(self, prop_id):
+        """Triggered when choosing items inside your object asset selector list"""
+        prop_config = self.manifest_data.get(prop_id)
+        
+        if prop_config and prop_config["type"] == "EMITTER":
+            # Initialize live emitter object tracking logic
+            self.active_prop_object = MH2LiveEmitterProp(prop_id, prop_config)
+            
+            # Map existing file configurations out of JSON straight to UI handles
+            self.hide_mesh_cb.setChecked(not prop_config["is_mesh_visible"])
+            self.count_slider.setValue(prop_config["particle_count"])
+            
+            self.emitter_box.setVisible(True)
+        else:
+            self.emitter_box.setVisible(False)
+
+    # Real-Time UI Editing Callbacks that Rewrite the JSON on the fly
+    def on_visibility_toggled(self, checked):
+        if self.active_prop_object:
+            # Update memory representation variable
+            self.active_prop_object.is_mesh_visible = not checked
+            
+            # Commit the property value edit directly back to your resource JSON file
+            update_prop_json_entry(self.active_prop_object.prop_id, {
+                "is_mesh_visible": not checked
+            })
+
+    def on_density_slider_changed(self, value):
+        if self.active_prop_object:
+            self.active_prop_object.max_particles = value
+            
+            # Commit the changed slider limit calculation to disk configuration
+            update_prop_json_entry(self.active_prop_object.prop_id, {
+                "particle_count": value
+            })
