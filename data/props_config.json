@@ -33,7 +33,7 @@
     "Floating_Spirit_Wisp": {
         "name": "Floating Spirit Wisp",
         "type": "EMITTER",
-        "mesh_path": "data/props/cube.obj",
+        "mesh_path": "data/props/ball.obj",
         "thumb": "data/icons/wisp.png",
         "is_mesh_visible": false,
         "is_emitting": true,

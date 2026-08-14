@@ -8,9 +8,13 @@
 import os
 import json
 
-# Saves it relative to your plugin setup directory inside mh2_official_tools
-PLUGIN_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-JSON_PATH = os.path.join(PLUGIN_DIR, "resource", "props_config.json")
+CORE_DIRECTORY_LOCATION = os.path.dirname(os.path.abspath(__file__))
+
+PROP_PANEL_ROOT_DIR = os.path.dirname(CORE_DIRECTORY_LOCATION)
+
+PLUGIN_DIR = os.path.normpath(PROP_PANEL_ROOT_DIR).replace("\\", "/")
+
+JSON_PATH = os.path.join(PLUGIN_DIR, "resource", "props_config.json").replace("\\", "/")
 
 def load_props_manifest():
     """Reads the JSON manifest file or creates an initial fallback configuration if empty"""
