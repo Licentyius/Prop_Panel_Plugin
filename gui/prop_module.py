@@ -1,5 +1,5 @@
 """
-Prop Module v2.0 (Unified Master Edition).
+Prop Module v2.1 (Unified Master Edition).
 Part of the MakeHuman 2 Project contributed by Elvaerwyn_MH2 2026.
 """
 
@@ -332,16 +332,34 @@ class PropManLeftPanel(QWidget):
         self.prop_list.currentItemChanged.connect(self.select_prop)
         master_panel_flow.addWidget(self.prop_list)
 
-        if hasattr(parent, 'equipment') and "props" in parent.equipment:
-            img_sel = parent.equipment["props"].get("func", None)
-            if img_sel:
-                master_panel_flow.addWidget(QLabel("<b>Selected Asset Specification Profile:</b>"))
-                from gui.imageselector import InformationBox
-                
-                self.left_infobox_layout = QVBoxLayout()
-                self.left_prop_infobox = InformationBox(self.left_infobox_layout)
-                master_panel_flow.addLayout(self.left_infobox_layout)
-                img_sel.infobox = self.left_prop_infobox
+        self.live_fx_modifiers_group = MHGroupBox("Live FX Simulation Tuning")
+        fx_tuning_form = QFormLayout()
+
+        # Slider 1: Stream Density Modifier 
+        self.density_slider = QDoubleSpinBox()
+        self.density_slider.setRange(10.0, 2000.0)
+        self.density_slider.setSingleStep(25.0)
+        self.density_slider.setValue(300.0)
+        self.density_slider.setDecimals(0)
+        self.density_slider.setSuffix(" pts")
+        self.density_slider.valueChanged.connect(self.sync_density_to_active_prop)
+        fx_tuning_form.addRow("Stream Density:", self.density_slider)
+
+        # Slider 2: Sprite Size Modifier 
+        self.size_slider = QDoubleSpinBox()
+        self.size_slider.setRange(1.0, 128.0)
+        self.size_slider.setSingleStep(1.0)
+        self.size_slider.setValue(6.0)
+        self.size_slider.setDecimals(1)
+        self.size_slider.setSuffix(" px")
+        self.size_slider.valueChanged.connect(self.sync_size_to_active_prop)
+        fx_tuning_form.addRow("Sprite Point Size:", self.size_slider)
+
+        self.live_fx_modifiers_group.setLayout(fx_tuning_form)
+        master_panel_flow.addWidget(self.live_fx_modifiers_group)
+        
+        self.live_fx_modifiers_group.setVisible(True)
+
 
         master_panel_flow.addWidget(QLabel("<b>2D Room Boundary Planner Map:</b>"))
         self.room_boundary_map_widget = MHRoomLayoutMap(parent=parent, is_boundary_planner=True) 
@@ -462,43 +480,72 @@ class PropManLeftPanel(QWidget):
     def refresh_inventory_list(self):
         """Clears and rebuilds the inventory table view rows cleanly using true manifest dictionaries."""
         try:
-
             from PySide6.QtWidgets import QTableWidgetItem
             from mh2_official_tools.prop_panel.core.json_manager import load_props_manifest
             props_manifest = load_props_manifest()
             
+            # Wipe existing rows completely to refresh layout canvas channels
             self.inventory_table.setRowCount(0)
             
-            for index, (prop_id, prop_info) in enumerate(props_manifest.items()):
-                self.inventory_table.insertRow(index)
+            current_row_idx = 0
+            for prop_id, prop_info in props_manifest.items():
+                # Filter out UI descriptive labels that leaked into root keys
+                ui_blacklist = ["🔥 fx emitter", "double-click row to equip", "solid mesh"]
+                if str(prop_id).lower() in ui_blacklist or not isinstance(prop_info, dict):
+                    continue
+                    
+                # Strict string typecasting prevents array translation collapses
+                prop_name = str(prop_info.get("name", str(prop_id)))
+                raw_type = str(prop_info.get("type", prop_info.get("object_type", "STATIC"))).upper().strip()
                 
-                # Column 1: Extract display name safely ("Fire Magic Torch")
-                prop_name = prop_info.get("name", str(prop_id))
-                name_item = QTableWidgetItem(str(prop_name))
-                name_item.setData(Qt.UserRole, prop_id)
-                self.inventory_table.setItem(index, 0, name_item)
+                self.inventory_table.insertRow(current_row_idx)
+                
+                # Column 1: Asset Manifest ID Track Label
+                name_item = QTableWidgetItem(prop_name)
+                name_item.setData(Qt.UserRole, str(prop_id))
+                self.inventory_table.setItem(current_row_idx, 0, name_item)
                 
                 # Column 2: Status Column Text String showing active asset type tokens
-                obj_type = str(prop_info.get("type", "STATIC")).upper()
-                status_text = "🔥 FX EMITTER" if obj_type == "EMITTER" else "📦 SOLID MESH"
+                status_text = "🔥 FX EMITTER" if raw_type == "EMITTER" else "📦 SOLID MESH"
                 status_item = QTableWidgetItem(status_text)
-                self.inventory_table.setItem(index, 1, status_item)
+                self.inventory_table.setItem(current_row_idx, 1, status_item)
                 
-                # Column 3: Action Trigger Guidelines
-                action_item = QTableWidgetItem("Double-click row to equip")
-                self.inventory_table.setItem(index, 2, action_item)
+                # Column 3: Action Trigger guideline text
+                custom_pool = getattr(self.glob, 'custom_props_list', [])
+                is_active = any(str(getattr(p, 'prop_id', '')).lower() == str(prop_id).lower() for p in custom_pool)
+                action_text = "Double-click to remove" if is_active else "Double-click to equip"
                 
-            print(f"[Prop Studio UI] Catalog initialized cleanly. Successfully loaded {len(props_manifest)} manifest tracks.")
+                self.inventory_table.setItem(current_row_idx, 2, QTableWidgetItem(action_text))
+                current_row_idx += 1
+                
+            print(f"[Prop Studio UI] Catalog initialized cleanly. Successfully loaded {current_row_idx} active data tracks.")
         except Exception as err:
             print(f"[Prop Studio UI Error] Inventory listing loops collapsed on string assignments: {str(err)}")
 
     def on_inventory_row_clicked(self, item):
-        """Redirects table row clicks directly to the active spawner pass."""
-        if item and hasattr(self, 'deploy_scene_asset'):
-            # Pulls the background ID key from the row memory
-            true_id = item.data(Qt.UserRole)
-            if not true_id:
-                true_id = item.text().strip()
+        """Redirects table row clicks directly to the active spawner pass using real data markers."""
+        if not item:
+            return
+            
+        # Get the row index that was double-clicked
+        clicked_row = item.row()
+        
+        # Explicitly pull cell data from COLUMN 0 (where the unique key string resides)
+        name_cell = self.inventory_table.item(clicked_row, 0)
+        if not name_cell:
+            return
+            
+        # Retrieve the unformatted JSON key
+        true_id = name_cell.data(Qt.UserRole)
+        
+        # Fall back safely to raw text only if metadata isn't assigned
+        if not true_id:
+            true_id = name_cell.text().strip()
+
+        # Strict block checks prevent descriptive labels from spawning ghost objects
+        ui_blacklist = ["🔥 fx emitter", "double-click row to equip", "solid mesh", "available file"]
+        if true_id and not any(blacklist in str(true_id).lower() for blacklist in ui_blacklist):
+            print(f"[Prop Studio UI] Dispatching catalog deploy signal for key: {true_id}")
             self.deploy_scene_asset(true_id)
 
     def deploy_scene_asset(self, prop_id_key):
@@ -507,15 +554,63 @@ class PropManLeftPanel(QWidget):
         manifest = load_props_manifest()
         
         asset_profile = manifest.get(prop_id_key, {})
+        if not asset_profile:
+            print(f"[Prop Studio Error] Profile key '{prop_id_key}' was missing from the JSON file configurations.")
+            return False
         
         prop_name = asset_profile.get("name", str(prop_id_key))
-        prop_type = asset_profile.get("type", "STATIC")
+        prop_type = str(asset_profile.get("type", asset_profile.get("object_type", "STATIC"))).upper().strip()
         raw_mesh_path = asset_profile.get("mesh_path", "data/props/ball.obj")
         
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         full_obj_path = os.path.normpath(os.path.join(base_dir, raw_mesh_path)).replace("\\", "/")
 
         print(f"[Prop Studio Core] Deploying scene initialization for manifest key: {prop_id_key}")
+        
+        new_studio_asset = PropObject(prop_name, self.glob)
+        new_studio_asset.prop_id = str(prop_id_key)
+        new_studio_asset.path = full_obj_path
+        new_studio_asset.object_type = prop_type
+        new_studio_asset.type = prop_type
+        
+        # Route config parameters straight out of the JSON map onto the live scene element
+        new_studio_asset.max_particles = int(asset_profile.get("particle_count", asset_profile.get("max_particles", 300)))
+        new_studio_asset.is_emitting = bool(asset_profile.get("is_emitting", True))
+        new_studio_asset.is_mesh_visible = bool(asset_profile.get("is_mesh_visible", True))
+        new_studio_asset.visible = new_studio_asset.is_mesh_visible
+        
+        # Link up texture maps paths for prop_renderer.py to parse
+        new_studio_asset.particle_texture = asset_profile.get("particle_texture", "PLAIN")
+        new_studio_asset.particle_color = asset_profile.get("color_rgba", [1.0, 0.4, 0.0, 1.0])
+        
+        new_studio_asset.parent_bone = asset_profile.get("default_bone", asset_profile.get("parent_bone", "hand_R"))
+        new_studio_asset.use_parenting = True if prop_type == "EMITTER" else False
+        new_studio_asset.position = np.array([0.0, 0.814, 0.0], dtype=np.float64)
+
+        pm = PropMesh(self.glob)
+        res, err = pm.load(full_obj_path)
+        if res:
+            new_studio_asset.mesh_reference = pm
+            new_studio_asset.obj = pm.getObj()
+            
+            t_struct = {"translation": [0.0, 0.814, 0.0], "rotation": [0.0, 0.0, 0.0], "scale": [1.0, 1.0, 1.0]}
+            if hasattr(self.glob, 'prop_manager_pipeline') and self.glob.prop_manager_pipeline:
+                self.glob.prop_manager_pipeline.registerProp(prop_name, new_studio_asset.obj, parent_bone=new_studio_asset.parent_bone, relative_transform=t_struct)
+
+        if not hasattr(self.glob, 'custom_props_list'):
+            self.glob.custom_props_list = []
+            
+        self.propman.current_prop = new_studio_asset
+        self.glob.custom_props_list.append(new_studio_asset)
+        
+        self.setValueFromProp(new_studio_asset)
+        
+        # REDIRECT TO PROPMAN COMPONENT OBJECT
+        if hasattr(self, 'propman') and self.propman:
+            self.propman.global_pipeline_refresh()
+            
+        return True
+
         
         class MHStudioLivePropObject:
             def __init__(self):
@@ -632,40 +727,53 @@ class PropManLeftPanel(QWidget):
             self.active_emit_cb.toggled.connect(self.on_emission_loop_toggled)
 
     def select_prop(self, current, previous):
-        """Selects the asset via the prop manager and checks for emitter characteristics."""
-        if not current or not self.propman: 
+        """Monitors item row selections inside the layout to toggle emitter control panels."""
+        if not current or not self.propman:
             self.emitter_context_group.setVisible(False)
             return
 
-        current_prop = self.propman.setCurrentProp(current.text())
+        raw_text = current.text()
+        print(f"[Prop Studio UI Check] Selected row entry text target string: '{raw_text}'")
+
+        # Extract the raw clean prop ID out of active formatted list item prefix string
+        if "| State:" in raw_text:
+            left_segment = raw_text.split("|")[0]
+            prop_id = left_segment.replace("[O]", "").strip()
+        else:
+            prop_id = raw_text.strip()
+
+        print(f"[Prop Studio UI Check] Decoupled lookup ID key string: '{prop_id}'")
+
+        # Pull the active live model mesh instance from the plugin prop manager structures
+        current_prop = self.propman.setCurrentProp(prop_id)
         if current_prop: 
             self.setValueFromProp(current_prop)
 
-        prop_id = current.text()
-        global _standalone_studio_dock_instance
-        loaded_manifest = {}
-        if _standalone_studio_dock_instance:
-            loaded_manifest = _standalone_studio_dock_instance.property("manifest_data") or {}
-
+        # Sync text matching loops case-insensitively with the JSON definitions files cache
+        from mh2_official_tools.prop_panel.core.json_manager import load_props_manifest
+        loaded_manifest = load_props_manifest()
+        
         asset_profile = loaded_manifest.get(prop_id, {})
-        obj_type = str(asset_profile.get("type", "STATIC")).upper()
+        obj_type = str(asset_profile.get("type", getattr(current_prop, 'object_type', 'STATIC'))).upper()
 
-        if obj_type == "EMITTER":
-            if _standalone_studio_dock_instance:
-                _standalone_studio_dock_instance.setProperty("active_prop_id", prop_id)
-            
+        if obj_type == "EMITTER" or getattr(current_prop, 'object_type', 'STATIC') == 'EMITTER':
             self.ghost_mode_cb.blockSignals(True)
             self.active_emit_cb.blockSignals(True)
             
-            self.ghost_mode_cb.setChecked(not asset_profile.get("is_mesh_visible", True))
-            self.active_emit_cb.setChecked(asset_profile.get("is_emitting", True))
+            # Map parameters safely while preserving status toggles
+            self.ghost_mode_cb.setChecked(not asset_profile.get("is_mesh_visible", getattr(current_prop, 'is_mesh_visible', True)))
+            self.active_emit_cb.setChecked(asset_profile.get("is_emitting", getattr(current_prop, 'is_emitting', True)))
             
             self.ghost_mode_cb.blockSignals(False)
             self.active_emit_cb.blockSignals(False)
             
             self.emitter_context_group.setVisible(True)
+            print(f"[Prop Studio UI] UI intersection check passed. Displaying emitter tools group widget.")
         else:
             self.emitter_context_group.setVisible(False)
+
+        if hasattr(self.glob, 'openGLWindow') and self.glob.openGLWindow:
+            self.glob.openGLWindow.update()
 
     def leave(self):
         if hasattr(self, 'room_floor_mesh') and self.room_floor_mesh: 
@@ -829,6 +937,20 @@ class PropManLeftPanel(QWidget):
             w.blockSignals(False)
         self.syncToObject()
 
+    def sync_density_to_active_prop(self, value):
+        """Live pushes slider adjustments straight to the particle memory buffers."""
+        if hasattr(self, 'current_prop') and self.current_prop:
+            self.current_prop.max_particles = int(value)
+            print(f"[FX Tuning] Stream density capped at: {int(value)} particles for {self.current_prop.name}")
+
+    def sync_size_to_active_prop(self, value):
+        """Live maps pixel weights onto custom assets for the OpenGL draw pass to read."""
+        if hasattr(self, 'current_prop') and self.current_prop:
+            # Inject a dynamic size attribute directly onto the active prop object
+            self.current_prop.particle_draw_size = float(value)
+            if self.glob and getattr(self.glob, 'openGLWindow', None):
+                self.glob.openGLWindow.update()
+
     def _make_spinbox(self, is_rotation=False, is_scale=False):
         """Internal helper factory stamps out standardized PySide spinbox fields."""
         sb = QDoubleSpinBox()
@@ -946,6 +1068,32 @@ class PropManagerPanel(MHGroupBox):
         self.state_heartbeat_clock = QTimer(self)
         self.state_heartbeat_clock.timeout.connect(self.execute_master_heartbeat_pulse)
         self.state_heartbeat_clock.start(33) # Accelerated to 33ms target (~30 FPS simulation delta)
+
+        # =====================================================================
+        # >>> ENHANCEMENT: DECOUPLED PARTICLE SIMULATION PLAYBACK CONTROL >>>
+        # =====================================================================
+        self.fx_playback_group = MHGroupBox("FX Simulation Timeline Control")
+        fx_button_layout = QHBoxLayout()
+
+        self.play_fx_btn = QPushButton("▶ Play")
+        self.play_fx_btn.setStyleSheet("background-color: #2b6ca3; color: white; font-weight: bold;")
+        self.play_fx_btn.clicked.connect(self.trigger_fx_play)
+        fx_button_layout.addWidget(self.play_fx_btn)
+
+        self.pause_fx_btn = QPushButton("⏸ Pause")
+        self.pause_fx_btn.clicked.connect(self.trigger_fx_pause)
+        fx_button_layout.addWidget(self.pause_fx_btn)
+
+        self.stop_fx_btn = QPushButton("⏹ Clear/Stop")
+        self.stop_fx_btn.setStyleSheet("background-color: #7b2b2b; color: white;")
+        self.stop_fx_btn.clicked.connect(self.trigger_fx_stop)
+        fx_button_layout.addWidget(self.stop_fx_btn)
+
+        self.fx_playback_group.setLayout(fx_button_layout)
+        layout.addWidget(self.fx_playback_group)
+        
+        # Keep it visible so we can control playback globally
+        self.fx_playback_group.setVisible(True)
 
     def execute_master_heartbeat_pulse(self):
         """Unified system heartbeat pumps FSM ticks and particle physics calculations."""
@@ -1103,6 +1251,53 @@ class PropManagerPanel(MHGroupBox):
             print(f"[Prop Studio Addon] Export Success: {msg}")
         else:
             print(f"[Prop Studio Addon] Export Failure: {msg}")
+
+    def trigger_fx_play(self):
+        """Wakes up emissions and registers variables with the background worker loops."""
+        if self.current_prop:
+            self.current_prop.is_emitting = True
+            self.current_prop.object_type = "EMITTER"
+            self.current_prop.type = "EMITTER"
+            
+            # UNIQUE ID BRIDGING ANCHOR
+            prop_id = getattr(self.current_prop, 'name', 'ball')
+            
+            from core.particle_engine import live_particle_system
+            if prop_id not in live_particle_system.emitter_pools:
+                live_particle_system.emitter_pools[prop_id] = []
+            
+            if self.leftPanel and hasattr(self.leftPanel, 'active_emit_cb'):
+                self.leftPanel.active_emit_cb.setChecked(True)
+            print(f"[FX Playback] Simulation synchronized and active for: {prop_id}")
+
+    def trigger_fx_pause(self):
+        """Freezes point coordinates in place without wiping them out."""
+        if self.current_prop:
+            self.current_prop.is_emitting = False
+            if self.leftPanel and hasattr(self.leftPanel, 'active_emit_cb'):
+                self.leftPanel.active_emit_cb.setChecked(False)
+            print(f"[FX Playback] Simulation paused.")
+
+    def trigger_fx_stop(self):
+        """Clears memory blocks and forces a viewport canvas refresh loop."""
+        if self.current_prop:
+            self.current_prop.is_emitting = False
+            prop_id = getattr(self.current_prop, 'name', 'ball')
+            
+            if hasattr(self.current_prop, 'particles_pool'):
+                self.current_prop.particles_pool.clear()
+            if hasattr(self.current_prop, 'particles'):
+                self.current_prop.particles.clear()
+                
+            from core.particle_engine import live_particle_system
+            if prop_id in live_particle_system.emitter_pools:
+                live_particle_system.emitter_pools[prop_id].clear()
+                
+            if self.leftPanel and hasattr(self.leftPanel, 'active_emit_cb'):
+                self.leftPanel.active_emit_cb.setChecked(False)
+                
+            self._trigger_viewport_redraw()
+            print(f"[FX Playback] Simulation stopped and pools flushed for: {prop_id}")
 
     def setLeftPanel(self, panel):
         """Links the numeric coordinate input forms to this panel manager."""
@@ -1644,12 +1839,17 @@ class PropManagerPanel(MHGroupBox):
         # Store dynamic layout configuration parameters safely
         new_prop.prop_id = getattr(asset, 'uuid', f"props_{name}")
         
-        emitter_keywords = ["ball", "diamond", "cocoon", "torch", "wisp"]
+        emitter_keywords = ["ball", "diamond", "cocoon", "torch", "wisp", "cone"]
+
         if any(keyword in name.lower() for keyword in emitter_keywords):
             new_prop.object_type = 'EMITTER'
             new_prop.type = 'EMITTER'
-            new_prop.max_particles = int(config_data.get("particle_count", 300)) if config_data else 300
-            new_prop.is_emitting = bool(config_data.get("is_emitting", True)) if config_data else True
+
+            has_config = 'config_data' in locals() and config_data is not None
+            
+            new_prop.max_particles = int(config_data.get("particle_count", 300)) if has_config else 300
+            new_prop.is_emitting = bool(config_data.get("is_emitting", True)) if has_config else True
+
             
             if self.leftPanel:
                 is_mesh_visible = not self.leftPanel.ghost_mode_cb.isChecked()
@@ -1996,12 +2196,35 @@ def initialize_prop_studio(app_reference, glob_reference, **kwargs):
         list_item.setData(Qt.UserRole, prop_id)
         prop_list_widget.addItem(list_item)
 
+    emitter_context_group.setLayout(context_layout)
+    left_layout.addWidget(emitter_context_group)
+    
+    emitter_context_group.setVisible(False)
+    left_scroll_wrapper.setWidget(left_control_panel)
+
+    # 1. CLEAN POPULATION STEP: Filter out decorative or placeholder text strings
+    ui_blacklist = ["🔥 fx emitter", "double-click row to equip", "solid mesh"]
+    
+    for prop_id, prop_info in loaded_manifest.items():
+        # Check if the entry is an actual data profile, not UI labels
+        if str(prop_id).lower() in ui_blacklist:
+            continue
+            
+        list_item = QListWidgetItem(prop_info.get("name", prop_id))
+        list_item.setData(Qt.UserRole, prop_id)
+        prop_list_widget.addItem(list_item)
+
     def on_prop_selection_changed():
         current_item = prop_list_widget.currentItem()
         if not current_item:
             return
             
         selected_id = current_item.data(Qt.UserRole)
+        
+        # 2. SELECTION SAFEGUARD: Abort early if a blacklisted text element somehow gets triggered
+        if not selected_id or str(selected_id).lower() in ui_blacklist:
+            emitter_context_group.setVisible(False)
+            return
 
         current_manifest = _standalone_studio_dock_instance.property("manifest_data") or {}
         asset_profile = current_manifest.get(selected_id, {})
@@ -2024,6 +2247,7 @@ def initialize_prop_studio(app_reference, glob_reference, **kwargs):
             emitter_context_group.setVisible(False)
 
     prop_list_widget.itemSelectionChanged.connect(on_prop_selection_changed)
+
 
     def on_ghost_toggled(checked):
         active_id = _standalone_studio_dock_instance.property("active_prop_id")

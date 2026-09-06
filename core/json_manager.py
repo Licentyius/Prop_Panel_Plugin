@@ -23,9 +23,9 @@ def load_props_manifest():
         os.makedirs(os.path.dirname(JSON_PATH), exist_ok=True)
         default_data = {
             "torch_01": {
-                "name": "Fire Magic Torch",
+                "name": "Fallback Magic Item",
                 "type": "EMITTER",
-                "mesh_path": "resource/obj3d/torch.obj",
+                "mesh_path": "data/props/cone.obj",
                 "is_mesh_visible": True,
                 "particle_count": 250,
                 "color_rgba": [1.0, 0.4, 0.0, 1.0]
