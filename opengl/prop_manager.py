@@ -1,5 +1,5 @@
 ######
-## Prop Manager V2.0 (Plugin Isolated Build)
+## Prop Manager V2.1 (Plugin Isolated Build)
 ## Part of the MakeHuman 2 Project contributed by Elvaerwyn_MH2 2026
 ######
 from PySide6.QtGui import QMatrix4x4, QVector3D, QVector4D
@@ -84,9 +84,14 @@ class MultiPropManager():
 
     def drawProps(self, proj_view_matrix, campos, light_obj):
         custom_props = getattr(self.glob, 'custom_props_list', None)
+
+        if custom_props:
+            from .prop_renderer import inject_particle_gl_draw_pass
+            inject_particle_gl_draw_pass(custom_props)
+
         if len(self.active_props) > 0 and custom_props:
             bc = getattr(self.glob, 'baseClass', None)
-            
+
             for prop_data in custom_props:
                 if not prop_data or getattr(prop_data, 'visible', True) is False:
                     continue

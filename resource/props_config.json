@@ -1,0 +1,87 @@
+{
+    "cone": {
+        "id": "magic_cone_torch",
+        "name": "Ethereal Flame Torch",
+        "type": "EMITTER",
+        "object_type": "EMITTER",
+        "mesh_path": "data/props/cone.obj",
+        "is_mesh_visible": false,
+        "is_emitting": true,
+        "visible": true,
+        "use_parenting": true,
+        "default_bone": "hand_R",
+        "parent_bone": "hand_R",
+        "particle_count": 450,
+        "max_particles": 450,
+        "particle_texture": "data/props/particles/image_qB7hER.png",
+        "color_rgba": [1.0, 1.0, 1.0, 1.0]
+    },
+    "torch": {
+        "id": "magic_cone_torch",
+        "name": "Ethereal Flame Torch",
+        "type": "EMITTER",
+        "object_type": "EMITTER",
+        "mesh_path": "data/props/cone.obj",
+        "is_mesh_visible": false,
+        "is_emitting": true,
+        "visible": true,
+        "use_parenting": true,
+        "default_bone": "hand_R",
+        "parent_bone": "hand_R",
+        "particle_count": 450,
+        "max_particles": 450,
+        "particle_texture": "data/props/particles/image_qB7hER.png",
+        "color_rgba": [1.0, 1.0, 1.0, 1.0]
+    },
+    "ball": {
+        "id": "ball",
+        "name": "Ball Emitter",
+        "type": "EMITTER",
+        "object_type": "EMITTER",
+        "mesh_path": "data/props/ball.obj",
+        "is_mesh_visible": true,
+        "is_emitting": true,
+        "visible": true,
+        "use_parenting": true,
+        "default_bone": "hand_R",
+        "parent_bone": "hand_R",
+        "particle_count": 250,
+        "max_particles": 250,
+        "particle_texture": "PLAIN",
+        "color_rgba": [0.2, 0.6, 1.0, 1.0]
+    },
+    "torch_01": {
+        "name": "Fire Magic Torch",
+        "type": "EMITTER",
+        "mesh_path": "data/props/cone.obj",
+        "particle_count": 300,
+        "particle_texture": "data/textures/particles/flame_alpha.png",
+        "color_rgba": [1.0, 0.4, 0.0, 1.0]
+    },
+    "magic_lamp": {
+        "name": "Simple Glow Lamp",
+        "type": "EMITTER",
+        "mesh_path": "data/props/ball.obj",
+        "particle_count": 100,
+        "particle_texture": "PLAIN",
+        "color_rgba": [1.0, 1.0, 0.8, 1.0]
+    },
+    "magic_cone_torch": {
+        "id": "magic_cone_torch",
+        "name": "Ethereal Flame Torch",
+        "type": "EMITTER",
+        "object_type": "EMITTER",
+        "mesh_path": "data/props/cone.obj",
+        "is_mesh_visible": true,
+        "is_emitting": true,
+        "visible": true,
+        "use_parenting": true,
+        "default_bone": "hand_R",
+        "parent_bone": "hand_R",
+        "particle_count": 450,
+        "max_particles": 450,
+        "particle_texture": "data/props/particles/flame.png",
+        "color_rgba": [1.0, 1.0, 1.0, 1.0]
+    }
+}
+

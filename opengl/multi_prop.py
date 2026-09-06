@@ -1,5 +1,5 @@
 #######
-## Multi-Prop V2.0
+## Multi-Prop V2.1
 ## Part of the MakeHuman 2 Project contributed by Elvaerwyn_MH2 2026
 #######
 
@@ -128,19 +128,190 @@ class Multi_Prop():
     def drawProps(self, proj_view_matrix, campos, light_obj):
         """Coordinates rendering states via direct injection into the OpenGL draw loops."""
         custom_props = getattr(self.glob, 'custom_props_list', [])
-        if len(self.active_props) > 0 and custom_props:
-            bc = getattr(self.glob, 'baseClass', None)
+        bc = getattr(self.glob, 'baseClass', None)
+ 
+        # 1. COMPUTE AND DRAW THE PARTICLE SIMULATION STREAMS FIRST
+        if custom_props:
+            from OpenGL import GL as gl
+            gl.glUseProgram(0)  # Release modern pipeline shader hold safely
             
+            from .prop_renderer import inject_particle_gl_draw_pass
+            
+            # Temporary storage to match matrix variables inside drawing queues
             for prop_data in custom_props:
-                if not prop_data or getattr(prop_data, 'visible', True) is False:
+                obj_type = getattr(prop_data, 'object_type', getattr(prop_data, 'type', 'STATIC'))
+                if str(obj_type).upper() != 'EMITTER':
                     continue
-                if prop_data.name not in self.active_props:
+                    
+                p_matrix = QMatrix4x4()
+                bone_name = getattr(prop_data, 'parent_bone', 'None')
+                is_parented = getattr(prop_data, 'use_parenting', False) and bone_name != "None"
+                bone = None
+                
+                if is_parented and bc:
+                    skeleton = bc.pose_skeleton if bc.in_posemode else bc.skeleton
+                    if skeleton and bone_name in getattr(skeleton, 'bones', {}):
+                        bone = skeleton.bones[bone_name]
+                        
+                if is_parented and bone is not None:
+                    b_pos = getattr(bone, 'poseheadPos', getattr(bone, 'headPos', None))
+                    b_rot = getattr(bone, 'matPoseVerts', getattr(bone, 'matRestGlobal', None))
+                    if b_pos is not None and b_rot is not None:
+                        comp_m = np.eye(4, dtype=np.float32)
+                        
+                        if hasattr(b_rot, 'shape'):
+                            if b_rot.shape == (3, 3): comp_m[0:3, 0:3] = b_rot
+                            elif b_rot.shape == (4, 4): comp_m[0:3, 0:3] = b_rot[0:3, 0:3]
+                        
+                        comp_m[0:3, 3] = [float(b_pos.x()), float(b_pos.y()), float(b_pos.z())]
+
+                        flat_list = [float(x) for x in comp_m.T.flatten()]
+                        p_matrix = QMatrix4x4(flat_list)
+                else:
+                    p_pos = getattr(prop_data, 'position', [0.0, 0.0, 0.0])
+                    p_matrix.setToIdentity()
+                    
+                    mx = float(p_pos[0]) if hasattr(p_pos, '__getitem__') and len(p_pos) > 0 else 0.0
+                    my = float(p_pos[1]) if hasattr(p_pos, '__getitem__') and len(p_pos) > 1 else 0.0
+                    mz = float(p_pos[2]) if hasattr(p_pos, '__getitem__') and len(p_pos) > 2 else 0.0
+                    p_matrix.translate(QVector3D(mx, my, mz))
+                    
+                u_transform = QMatrix4x4()
+                rot = getattr(prop_data, 'rotation', [0.0, 0.0, 0.0])
+                scl = getattr(prop_data, 'scale', [1.0, 1.0, 1.0])
+                
+                if is_parented:
+                    local_offset = getattr(prop_data, 'local_offset_pos', np.array([0.0, 0.1, 0.0]))
+                    u_transform.translate(float(local_offset[0]), float(local_offset[1]), float(local_offset[2]))
+                    
+                from PySide6.QtGui import QQuaternion
+                q_pitch = QQuaternion.fromAxisAndAngle(QVector3D(1.0, 0.0, 0.0), float(rot[0]))
+                q_yaw   = QQuaternion.fromAxisAndAngle(QVector3D(0.0, 1.0, 0.0), float(rot[1]))
+                q_roll  = QQuaternion.fromAxisAndAngle(QVector3D(0.0, 0.0, 1.0), float(rot[2]))
+                u_transform.rotate(q_yaw * q_pitch * q_roll)
+                u_transform.scale(float(scl[0]), float(scl[1]), float(scl[2]))
+                
+                model_matrix = p_matrix * u_transform
+
+                prop_data.runtime_gl_matrix = [float(x) for x in model_matrix.copyData()]
+                
+            inject_particle_gl_draw_pass(custom_props)
+
+        # 2. RENDER THE 3D SOLID PROP GEOMETRY MESHES DIRECTLY FROM ATTACHED PARAMETERS
+        if custom_props:
+            for prop_data in custom_props:
+                if not prop_data:
                     continue
+                    
+                prop_vis = getattr(prop_data, 'visible', True)
+                mesh_vis = getattr(prop_data, 'is_mesh_visible', True)
+                if not prop_vis or not mesh_vis:
+                    continue
+                    
                 if not hasattr(prop_data, 'mesh_reference') or not prop_data.mesh_reference.render:
                     continue
                     
                 prop_matrix = QMatrix4x4()
                 bone_name = getattr(prop_data, 'parent_bone', 'None')
+                is_parented = getattr(prop_data, 'use_parenting', False) and bone_name != "None"
                 bone = None
-                is_parented = False
+
+                if is_parented and bc:
+                    skeleton = bc.pose_skeleton if bc.in_posemode else bc.skeleton
+                    if skeleton is None:
+                        skeleton = bc.default_skeleton
+                    if skeleton and bone_name in getattr(skeleton, 'bones', {}):
+                        bone = skeleton.bones[bone_name]
+
+                if is_parented and bone is not None:
+                    b_pos = getattr(bone, 'poseheadPos', getattr(bone, 'headPos', None))
+                    b_rot = getattr(bone, 'matPoseVerts', getattr(bone, 'matRestGlobal', None))
+                    if b_pos is not None and b_rot is not None:
+                        comp_m = np.eye(4, dtype=np.float32)
+                        
+                        if hasattr(b_rot, 'shape'):
+                            if b_rot.shape == (3, 3): comp_m[0:3, 0:3] = b_rot
+                            elif b_rot.shape == (4, 4): comp_m[0:3, 0:3] = b_rot[0:3, 0:3]
+                        
+                        comp_m[0:3, 3] = [float(b_pos.x()), float(b_pos.y()), float(b_pos.z())]
+
+                        flat_list = [float(x) for x in comp_m.T.flatten()]
+                        prop_matrix = QMatrix4x4(flat_list)
+                else:
+                    p_pos = getattr(prop_data, 'position', [0.0, 0.0, 0.0])
+                    prop_matrix.setToIdentity()
+                    
+                    mx = float(p_pos[0]) if hasattr(p_pos, '__getitem__') and len(p_pos) > 0 else 0.0
+                    my = float(p_pos[1]) if hasattr(p_pos, '__getitem__') and len(p_pos) > 1 else 0.0
+                    mz = float(p_pos[2]) if hasattr(p_pos, '__getitem__') and len(p_pos) > 2 else 0.0
+                    prop_matrix.translate(QVector3D(mx, my, mz))
+
+                user_transform = QMatrix4x4()
+                rot = getattr(prop_data, 'rotation', [0.0, 0.0, 0.0])
+                scl = getattr(prop_data, 'scale', [1.0, 1.0, 1.0])
+                
+                if is_parented:
+                    local_offset = getattr(prop_data, 'local_offset_pos', np.array([0.0, 0.1, 0.0]))
+                    user_transform.translate(float(local_offset[0]), float(local_offset[1]), float(local_offset[2]))
+
+                from PySide6.QtGui import QQuaternion
+                q_pitch = QQuaternion.fromAxisAndAngle(QVector3D(1.0, 0.0, 0.0), float(rot[0]))
+                q_yaw   = QQuaternion.fromAxisAndAngle(QVector3D(0.0, 1.0, 0.0), float(rot[1]))
+                q_roll  = QQuaternion.fromAxisAndAngle(QVector3D(0.0, 0.0, 1.0), float(rot[2]))
+                user_transform.rotate(q_yaw * q_pitch * q_roll)
+                user_transform.scale(float(scl[0]), float(scl[1]), float(scl[2]))
+
+                final_mvp = proj_view_matrix * (prop_matrix * user_transform)
+                
+                active_shader = self.pbr if self.pbr else self.phong
+                if active_shader and self.shaders:
+                    self.shaders.bindShader(active_shader)
+                    loc_mvp = gl.glGetUniformLocation(active_shader.program, "meshMVP")
+                    if loc_mvp != -1:
+                        gl.glUniformMatrix4fv(loc_mvp, 1, gl.GL_FALSE, final_mvp.data())
+                        
+                    prop_data.mesh_reference.render.draw(final_mvp, campos, light_obj, False)
+
+
+class MHRuntimeParticleEmitter:
+    """Manages active live viewport particle simulation calculations over time frames."""
+    def __init__(self, config_data):
+        self.config = config_data
+        dynamics = config_data.get("particle_dynamics", {})
+        
+        self.max_particles = dynamics.get("max_particles", 100)
+        self.particles = [] # Holds live dictionaries: {"pos": [x,y,z], "vel": [x,y,z], "life": float}
+        
+    def advance_simulation_tick(self, delta_time, origin_pos):
+        """Advances positions along velocity vectors and spawns new particle nodes."""
+        dynamics = self.config.get("particle_dynamics", {})
+        vel = dynamics.get("initial_velocity_xyz", [0.0, 1.0, 0.0])
+        drift = dynamics.get("velocity_drift_xyz", [0.1, 0.1, 0.1])
+        gravity = dynamics.get("gravity_acceleration_y", 0.0)
+
+        # 1. Update existing particle positions array lines
+        for p in self.particles[:]:
+            p["life"] -= delta_time
+            if p["life"] <= 0:
+                self.particles.remove(p)
+                continue
+                
+            # Apply acceleration vectors over time
+            p["pos"][0] += p["vel"][0] * delta_time
+            p["pos"][1] += (p["vel"][1] - gravity) * delta_time
+            p["pos"][2] += p["vel"][2] * delta_time
+
+        # 2. Spawn fresh points if room remains active under the cap limit
+        if len(self.particles) < self.max_particles:
+            random_drift_x = (np.random.rand() - 0.5) * drift[0]
+            random_drift_y = (np.random.rand() - 0.5) * drift[1]
+            random_drift_z = (np.random.rand() - 0.5) * drift[2]
+            
+            new_particle = {
+                "pos": [float(origin_pos[0]), float(origin_pos[1]), float(origin_pos[2])],
+                "vel": [vel[0] + random_drift_x, vel[1] + random_drift_y, vel[2] + random_drift_z],
+                "life": float(np.random.uniform(0.5, 2.0))
+            }
+            self.particles.append(new_particle)
+
 
