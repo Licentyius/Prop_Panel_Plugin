@@ -1,5 +1,6 @@
 # Prop_Panel_Plugin
 
+- Update, this version now includes the fledgling emitter system in its first build. WIP.
 The first upload of the prop panel plugin for testing purposes. This will be for Makehuman 2 Official plugins.   
 This will fully require MH2 Plugin panel expansion and up in order to operate.   
   
