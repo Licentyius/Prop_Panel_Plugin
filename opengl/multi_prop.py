@@ -13,11 +13,12 @@ class Multi_Prop():
     """
     Manages active non-deforming static props, socket attachment transformations,
     and coordinates rendering states via direct injection into the OpenGL draw loops.
+    TODO: class not used at all
     """
     def __init__(self, shaders, glob):
         self.glob = glob
         self.shaders = shaders
-        
+
         self.fixcolor = shaders.getShader("fixcolor") if shaders else None
         self.phong = shaders.getShader("phong") if shaders else None
         self.pbr = shaders.getShader("pbr") if shaders else None
@@ -126,6 +127,7 @@ class Multi_Prop():
         return None
 
     def drawProps(self, proj_view_matrix, campos, light_obj):
+        #print("drawProps from prop_manager draw")
         """Coordinates rendering states via direct injection into the OpenGL draw loops."""
         custom_props = getattr(self.glob, 'custom_props_list', [])
         bc = getattr(self.glob, 'baseClass', None)
@@ -195,7 +197,7 @@ class Multi_Prop():
 
                 prop_data.runtime_gl_matrix = [float(x) for x in model_matrix.copyData()]
                 
-            inject_particle_gl_draw_pass(custom_props)
+            inject_particle_gl_draw_pass(self.glob, custom_props)
 
         # 2. RENDER THE 3D SOLID PROP GEOMETRY MESHES DIRECTLY FROM ATTACHED PARAMETERS
         if custom_props:
@@ -275,6 +277,9 @@ class Multi_Prop():
 
 class MHRuntimeParticleEmitter:
     """Manages active live viewport particle simulation calculations over time frames."""
+    # tick_physics in PrimitiveParticleEngine and calculate_live_particle_physics_tick in gui/prop_module
+    # we need to decide for one engine even if we have more than one calculation
+    # TODO Class not used at all
     def __init__(self, config_data):
         self.config = config_data
         dynamics = config_data.get("particle_dynamics", {})
@@ -283,7 +288,7 @@ class MHRuntimeParticleEmitter:
         self.particles = [] # Holds live dictionaries: {"pos": [x,y,z], "vel": [x,y,z], "life": float}
         
     def advance_simulation_tick(self, delta_time, origin_pos):
-        """Advances positions along velocity vectors and spawns new particle nodes."""
+        """Advances positions along velocity vectors and spawns new particle nodes."""  # never called!!!
         dynamics = self.config.get("particle_dynamics", {})
         vel = dynamics.get("initial_velocity_xyz", [0.0, 1.0, 0.0])
         drift = dynamics.get("velocity_drift_xyz", [0.1, 0.1, 0.1])

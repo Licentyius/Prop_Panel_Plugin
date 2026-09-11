@@ -25,22 +25,24 @@ class PrimitiveParticleEngine:
         dt = max(0.016, min(0.033, raw_dt))
 
         for prop in active_props_list:
+            """
             # Only loop math rules if the asset is recognized as an active EMITTER
-            obj_type = getattr(prop, 'object_type', getattr(prop, 'type', 'STATIC'))
-            if str(obj_type).upper() != 'EMITTER':
-                continue
+            """
 
             prop_id = getattr(prop, 'name', None)
             if not prop_id: 
+                continue
+            p_emitter = prop.emitter
+
+            if p_emitter is None:
                 continue
 
             # Ensure an active list exists for this asset key tracker
             if prop_id not in self.emitter_pools:
                 self.emitter_pools[prop_id] = []
 
-            max_particles = getattr(prop, 'max_particles', 200)
             is_emitting = getattr(prop, 'is_emitting', True)
-            
+
             # Fetch the raw position tracker variable safely
             origin_pos = getattr(prop, 'position', [0.0, 0.0, 0.0])
 
@@ -65,7 +67,7 @@ class PrimitiveParticleEngine:
                 flat_pos = [0.0, 0.0, 0.0]
 
             # 1. Spawn a burst of new primitive points if emitter isn't blocked
-            if is_emitting and len(self.emitter_pools[prop_id]) < int(max_particles):
+            if is_emitting and len(self.emitter_pools[prop_id]) < int(p_emitter.max_particles):
                 for _ in range(4): 
                     self.emitter_pools[prop_id].append({
 

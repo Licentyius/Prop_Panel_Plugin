@@ -2,9 +2,13 @@
     "magic_torch_01": {
         "name": "Sorcerer Flame Torch",
         "type": "EMITTER",
+        "emitter_mode": "TEXTURED_SPRITES",
+        "particle_texture": "data/icons/flame.png",
+        "particle_draw_size": 48.0,
         "mesh_path": "data/props/cone.obj",
         "thumb": "data/icons/flame.png",
         "is_mesh_visible": true,
+        "is_emitting": true,
         "particle_count": 300,
         "particle_color": [1.0, 0.4, 0.0, 1.0],
         "default_bone": "hand_R"
@@ -12,9 +16,12 @@
     "ghost_wisp_01": {
         "name": "Floating Spirit Emitter",
         "type": "EMITTER",
+        "emitter_mode": "PARTICLES",
+        "particle_draw_size": 6.0,
         "mesh_path": "data/props/ball.obj",
         "thumb": "data/icons/wisp.png",
         "is_mesh_visible": false,
+        "is_emitting": true,
         "particle_count": 450,
         "particle_color": [0.0, 0.8, 1.0, 0.8],
         "default_bone": "head"
@@ -22,6 +29,9 @@
     "Sorcerer_Flame_Torch": {
         "name": "Sorcerer Flame Torch",
         "type": "EMITTER",
+        "emitter_mode": "TEXTURED_SPRITES",
+        "particle_texture": "data/icons/flame.png",
+        "particle_draw_size": 48.0,
         "mesh_path": "data/props/cone.obj",
         "thumb": "data/icons/flame.png",
         "is_mesh_visible": true,
@@ -33,6 +43,8 @@
     "Floating_Spirit_Wisp": {
         "name": "Floating Spirit Wisp",
         "type": "EMITTER",
+        "emitter_mode": "SPRITES",
+        "particle_draw_size": 16.0,
         "mesh_path": "data/props/ball.obj",
         "thumb": "data/icons/wisp.png",
         "is_mesh_visible": false,
@@ -42,4 +54,5 @@
         "default_bone": "head"
     }
 }
+
 

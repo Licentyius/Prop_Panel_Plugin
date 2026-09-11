@@ -87,7 +87,7 @@ class MultiPropManager():
 
         if custom_props:
             from .prop_renderer import inject_particle_gl_draw_pass
-            inject_particle_gl_draw_pass(custom_props)
+            inject_particle_gl_draw_pass(self.glob, custom_props)
 
         if len(self.active_props) > 0 and custom_props:
             bc = getattr(self.glob, 'baseClass', None)
