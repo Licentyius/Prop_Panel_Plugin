@@ -10,71 +10,32 @@ from PySide6.QtWidgets import QWidget, QMessageBox
 
 def perform_background_hardware_link(glob_reference, main_window, prop_manager_widget):
     """
-    Decoupled graphics and interface injection engine.
-    Safely binds the prop manager pipeline onto the active 3D drawing track.
+    Bind the own draw function to  MakeHuman2 openGL draw queue using library function
+    registerDrawFunction
     """
-    center_viewport = getattr(glob_reference, "openGLWindow", None)
-    if not center_viewport and hasattr(main_window, 'graph') and main_window.graph:
-        center_viewport = getattr(main_window.graph, 'view', None)
-    if not center_viewport and hasattr(main_window, 'glWindow'):
-        center_viewport = main_window.glWindow
 
-    if center_viewport and hasattr(center_viewport, 'scene') and center_viewport.scene:
-        active_scene_instance = center_viewport.scene
-        
-        if not hasattr(active_scene_instance, "_orig_mh2_scene_draw"):
-            active_scene_instance._orig_mh2_scene_draw = active_scene_instance.draw
-        
-        def decoupled_master_scene_draw(*args, **kwargs):
-            active_scene_instance._orig_mh2_scene_draw(*args, **kwargs)
+    def propDraw(parent, proj_view_matrix, campos):
             
-            live_glob = getattr(active_scene_instance, 'glob', glob_reference)
-            live_pipeline = getattr(live_glob, 'prop_manager_pipeline', None)
-            
-            if live_pipeline and hasattr(live_glob, 'custom_props_list') and live_glob.custom_props_list:
-                try:
-                    active_focus_prop = getattr(prop_manager_widget, 'current_prop', None)
-                    if active_focus_prop and hasattr(active_focus_prop, 'name') and active_focus_prop.name:
-                        if hasattr(prop_manager_widget, 'prop_fsm') and prop_manager_widget.prop_fsm:
-                            prop_manager_widget.prop_fsm.update_machine(active_focus_prop.name)
+        propman_pipeline = getattr(glob_reference, 'prop_manager_pipeline', None)
 
-                    proj_view_matrix = args[0] if len(args) > 0 else None
-                    campos = args[1] if len(args) > 1 else [0.0, 0.0, 5.0]
-                    
-                    if hasattr(center_viewport, "shaders") and center_viewport.shaders:
-                        live_pipeline.shaders = center_viewport.shaders
-                    elif hasattr(center_viewport, "ctx") and hasattr(center_viewport.ctx, "shaders"):
-                        live_pipeline.shaders = center_viewport.ctx.shaders
+        if propman_pipeline:
+            propman_pipeline.shaders = parent.mh_shaders
+            try:
+                active_focus_prop = getattr(prop_manager_widget, 'current_prop', None)
+                if active_focus_prop and hasattr(active_focus_prop, 'name') and active_focus_prop.name:
+                    if hasattr(prop_manager_widget, 'prop_fsm') and prop_manager_widget.prop_fsm:
+                        prop_manager_widget.prop_fsm.update_machine(active_focus_prop.name)
 
-                    active_light_object = None
-                    if hasattr(live_glob, 'light') and live_glob.light:
-                        active_light_object = live_glob.light
-                    elif hasattr(main_window, 'light') and main_window.light:
-                        active_light_object = main_window.light
-                    elif hasattr(center_viewport, 'light') and center_viewport.light:
-                        active_light_object = center_viewport.light
-                        
-                    if active_light_object is None:
-                        from types import SimpleNamespace
-                        active_light_object = SimpleNamespace(
-                            lightWeight=1.0, 
-                            direction=getattr(center_viewport, 'light_direction', [0.0, 1.0, 0.0]),
-                            color=[1.0, 1.0, 1.0]
-                        )
-                    
-                    if proj_view_matrix is not None:
-                        live_pipeline.drawProps(proj_view_matrix, campos, active_light_object)
+                # called in propmanager
+                propman_pipeline.drawProps(proj_view_matrix, campos, parent.light)
+                propman_pipeline.drawProps(proj_view_matrix, campos, parent.light)  # TODO should not be called twice later
 
-                except Exception as render_err:
-                    print(f"[Prop Studio Debug] Scene queue execution crash: {render_err}")
+            except Exception as render_err:
+                print(f"[Prop Studio Debug] Scene queue execution crash: {render_err}")
 
-        active_scene_instance.draw = decoupled_master_scene_draw
-        print("[Prop Studio Core] Successfully bound multi-prop manager onto scene drawing queue!")
-        
-        if hasattr(center_viewport, "update"): 
-            center_viewport.update()
-    else:
-        print("[Prop Studio Warning] Active 3D Scene object context not found on viewport target.")
+    glob_reference.registerDrawFunction("prop_panel", propDraw, 2)
+
+    print("[Prop Studio Core] draw function registered to MakeHuman2 openGL draw queue (PostDraw)!")
 
     # =========================================================================
     # DYNAMIC EXPORTER BAR INTERFACE INJECTION

@@ -903,6 +903,7 @@ class PropManagerPanel(MHGroupBox):
         new_prop.use_parenting = use_parent
         new_prop.parent_bone = target_bone
 
+        print("gui/proppanel.py")
         print(dumper(new_prop))
         
         self.current_prop = new_prop

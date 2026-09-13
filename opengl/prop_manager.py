@@ -87,7 +87,7 @@ class MultiPropManager():
 
         if custom_props:
             from .prop_renderer import inject_particle_gl_draw_pass
-            inject_particle_gl_draw_pass(custom_props)
+            inject_particle_gl_draw_pass(self.glob, custom_props)
 
         if len(self.active_props) > 0 and custom_props:
             bc = getattr(self.glob, 'baseClass', None)
@@ -164,8 +164,11 @@ class MultiPropManager():
                 else:
                     final_prop_matrix = user_transform
 
-                final_mvp = proj_view_matrix * final_prop_matrix
+                # 🛠️ THE CORRECT PYSIDE6 VALUE TRACKER:
+                # Swapped '.copyData()' for '.data()' to stop the scene queue crashes completely!
+                prop_data.runtime_gl_matrix = final_prop_matrix.data()
 
+                final_mvp = proj_view_matrix * final_prop_matrix
                 robj = prop_data.mesh_reference.render
                 robj.draw(final_mvp, campos, light_obj, False)
 
