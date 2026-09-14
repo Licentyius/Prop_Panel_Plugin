@@ -1,6 +1,6 @@
 ######
 #
-# Prop Renderer  V1.3 by Elvaerwyn MH_2 2026
+# Prop Renderer  V1.4a (Unified build v1)
 # For use in the prop panel plugin for Makehuman 2
 #
 ######
@@ -50,40 +50,52 @@ def inject_particle_gl_draw_pass(glob, custom_props_list):
     if now - glob._last_physics_frame_stamp > 0.016:
         live_particle_system.tick_physics(custom_props_list)
         glob._last_physics_frame_stamp = now
-
+    # ================================
+    # MAIN FOR-LOOP INJECTION CHANNEL
+    # ================================
     for prop in custom_props_list:
         obj_type = getattr(prop, 'object_type', getattr(prop, 'type', 'STATIC'))
         if str(obj_type).upper() != 'EMITTER':
             continue
 
-        # RESTORED ACTION GATE: Instantly skip drawing if user toggles emission off (Fixes Play/Pause)
+        # Skip drawing if user toggles emission off (Play/Pause handling)
         if not getattr(prop, 'is_emitting', True):
             continue
 
-        prop_id = getattr(prop, 'name', None)
-        vertices = []
-        
-        # Pull active coordinate vectors out of the simulation pools
-        if prop_id and prop_id in live_particle_system.emitter_pools:
-            pool_data = live_particle_system.emitter_pools[prop_id]
-            for p in pool_data:
-                if isinstance(p, dict) and "pos" in p:
-                    v = p["pos"]
-                    vertices.extend([float(v[0]), float(v[1]), float(v[2])])
-                elif isinstance(p, dict) and "coord" in p:
-                    v = p["coord"]
-                    vertices.extend([float(v[0]), float(v[1]), float(v[2])])
+        mode = getattr(prop, 'emitter_mode', 'PARTICLES').upper().strip()
+        if prop.emitter and mode == "PHYSICAL_MESH":
+            continue
 
-        if not vertices and hasattr(prop, 'particles_pool') and prop.particles_pool:
-            for p in prop.particles_pool:
-                vertices.extend([float(getattr(p, 'x', 0.0)), float(getattr(p, 'y', 0.0)), float(getattr(p, 'z', 0.0))])
+        vertices = []
+
+        if hasattr(prop, 'emitter') and prop.emitter and hasattr(prop.emitter, 'particles'):
+            emitter_data = prop.emitter.particles
+            if emitter_data is not None and len(emitter_data) > 0:
+                # Natively read the flat continuous 1D floating point list
+                try:
+                    vertices = [float(x) for x in emitter_data]
+                except Exception:
+                    vertices = []
+
+        # Fallback tracking if the emitter buffer is empty
+        if not vertices:
+            prop_id = getattr(prop, 'name', None)
+            if prop_id and prop_id in live_particle_system.emitter_pools:
+                pool_data = live_particle_system.emitter_pools[prop_id]
+                for p in pool_data:
+                    if isinstance(p, dict) and "pos" in p:
+                        v = p["pos"]
+                        if len(v) >= 3: vertices.extend([float(v[0]), float(v[1]), float(v[2])])
+                    elif isinstance(p, dict) and "coord" in p:
+                        v = p["coord"]
+                        if len(v) >= 3: vertices.extend([float(v[0]), float(v[1]), float(v[2])])
 
         if not vertices:
             continue
 
         vertex_data = np.array(vertices, dtype=np.float32)
 
-        # Dynamic parameter extraction checks priority chains to eliminate white dots exceptions
+        # Dynamic parameter extraction checks priority chains 
         color_data = None
         for attr in ['particle_color', 'color_rgba']:
             val = getattr(prop, attr, None)
@@ -97,37 +109,11 @@ def inject_particle_gl_draw_pass(glob, custom_props_list):
         else:
             r, g, b, a = 1.0, 0.4, 0.0, 1.0 # Safe programmatic orange baseline variable
 
-        # Fetch mode flags from your schema maps
-        mode = getattr(prop, 'emitter_mode', 'PARTICLES').upper().strip()
         size = float(getattr(prop, 'particle_draw_size', 6.0))
 
-        # =====================================================================
-        # MODE 4: PHYSICAL OBJECT MESH INSTANCING COPIES (.obj spawns)
-        # =====================================================================
-        if mode == "PHYSICAL_MESH" and hasattr(prop, 'mesh_reference') and prop.mesh_reference:
-            render_pipeline = getattr(glob, 'prop_manager_pipeline', None)
-            if render_pipeline:
-                active_shader = getattr(render_pipeline, 'pbr', getattr(render_pipeline, 'phong', None))
-                if active_shader and render_pipeline.shaders:
-                    render_pipeline.shaders.bindShader(active_shader)
-                    loc_mvp = gl.glGetUniformLocation(active_shader.program, "meshMVP")
-                    viewport = getattr(glob, 'openGLWindow', None)
-                    
-                    if viewport and loc_mvp != -1:
-                        proj_view = viewport.getProjViewMatrix()
-                        for i in range(0, len(vertices), 3):
-                            inst_m = QMatrix4x4()
-                            inst_m.translate(vertices[i], vertices[i+1], vertices[i+2])
-                            inst_m.scale(0.1, 0.1, 0.1) # Scale multiplier for small physical copies
-                            
-                            computed_mvp = proj_view * inst_m
-                            gl.glUniformMatrix4fv(loc_mvp, 1, gl.GL_FALSE, computed_mvp.data())
-                            prop.mesh_reference.render.draw(computed_mvp, viewport.campos, viewport.light, False)
-            continue
-
-        # =====================================================================
+        # ================================================
         # OPENGL BLIT VECTOR DRAW PASS (MODES 1, 2, & 3)
-        # =====================================================================
+        # ================================================
         gl.glPushMatrix()
         gl.glPushAttrib(gl.GL_POINT_BIT | gl.GL_CURRENT_BIT | gl.GL_ENABLE_BIT | gl.GL_TEXTURE_BIT)
         gl.glDisable(gl.GL_LIGHTING)
@@ -143,7 +129,7 @@ def inject_particle_gl_draw_pass(glob, custom_props_list):
             
             if active_tex_id is not None:
                 gl.glEnable(gl.GL_BLEND)
-                gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE) # Realistic additive blending
+                gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE) # additive blending
                 gl.glEnable(gl.GL_POINT_SPRITE)
                 gl.glTexEnvi(gl.GL_POINT_SPRITE, gl.GL_COORD_REPLACE, gl.GL_TRUE)
                 gl.glEnable(gl.GL_TEXTURE_2D)

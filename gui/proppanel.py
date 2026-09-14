@@ -1133,38 +1133,37 @@ class PropManagerPanel(MHGroupBox):
 
     def findBonePosition(self):
         pbone = self.bone_selector.currentText()
-        if pbone == "None" or not self.parent_toggle.isChecked(): 
+        if pbone == "None" or not self.parent_toggle.isChecked():
             return
-        bc = self.glob.baseClass
-        if bc is None: 
+
+        bc = getattr(self.glob, 'baseClass', None)
+        if bc is None:
             return
-        pinfo = bc.baseInfo
-        if not "props" in pinfo or pbone not in pinfo["props"]: 
-            return
-        pbone = pinfo["props"][pbone]
-        skeleton = bc.pose_skeleton if bc.in_posemode else bc.skeleton
-        if skeleton is None: 
-            skeleton = bc.default_skeleton
-        if skeleton is None: 
-            return
-        if pbone in skeleton.bones:
-            bone = skeleton.bones[pbone]
-            b_coord = bone.posetailPos if bc.in_posemode else bone.tailPos
-            if self.current_prop: 
-                current_pos = list(getattr(self.current_prop, 'position', [0.0, 0.0, 0.0]))
-                self.current_prop.position = [
-                    current_pos[0] + float(b_coord.x()),
-                    current_pos[1] + float(b_coord.y()),
-                    current_pos[2] + float(b_coord.z())
-                ]
-                if self.leftPanel:
-                    self.leftPanel.setValueFromProp(self.current_prop)
-                self._trigger_viewport_redraw()
+
+        b_coord, bone = bc.getVirtualBonePosition(pbone)
+        if bone and self.current_prop:
+
+            # Pull custom offset adjustments securely from local metadata slots
+            offset = getattr(self.current_prop, 'local_offset_pos', np.array([0.0,0.0,0.0]))
+
+            # Apply absolute snap coordinates without stacking values into an infinite drift loop
+            aligned_pos = [
+                float(offset[0] + b_coord[0]),
+                float(offset[1] + b_coord[1]),
+                float(offset[2] + b_coord[2])
+            ]
+
+            self.current_prop.position = np.array(aligned_pos, dtype=np.float64)
+
+            if self.leftPanel:
+                self.leftPanel.setValueFromProp(self.current_prop)
+            self._trigger_viewport_redraw()
 
 class CoreMH2PropPanel(QtWidgets.QWidget):
-    def __init__(self, parent_layout):
+    def __init__(self, glob, parent_layout):
         super().__init__()
         self.active_prop_object = None
+        self.glob = glob
         self.manifest_data = load_props_manifest()
         
         self.inject_ui_into_panel(parent_layout)
@@ -1198,7 +1197,7 @@ class CoreMH2PropPanel(QtWidgets.QWidget):
         
         if prop_config and prop_config["type"] == "EMITTER":
             # Initialize live emitter object tracking logic
-            self.active_prop_object = MH2LiveEmitterProp(prop_id, prop_config)
+            self.active_prop_object = MH2LiveEmitterProp(self.glob, prop_id, prop_config)
             
             # Map existing file configurations out of JSON straight to UI handles
             self.hide_mesh_cb.setChecked(not prop_config["is_mesh_visible"])

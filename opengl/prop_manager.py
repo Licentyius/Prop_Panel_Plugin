@@ -1,8 +1,8 @@
 ######
-## Prop Manager V2.1 (Plugin Isolated Build)
+## Prop Manager V2.3 (Unified Edition v1-still needs work)
 ## Part of the MakeHuman 2 Project contributed by Elvaerwyn_MH2 2026
 ######
-from PySide6.QtGui import QMatrix4x4, QVector3D, QVector4D
+from PySide6.QtGui import QMatrix4x4, QVector3D, QVector4D, QQuaternion
 import OpenGL
 from OpenGL import GL as gl
 import numpy as np
@@ -85,19 +85,17 @@ class MultiPropManager():
     def drawProps(self, proj_view_matrix, campos, light_obj):
         custom_props = getattr(self.glob, 'custom_props_list', None)
 
-        if custom_props:
-            from .prop_renderer import inject_particle_gl_draw_pass
-            inject_particle_gl_draw_pass(self.glob, custom_props)
-
         if len(self.active_props) > 0 and custom_props:
             bc = getattr(self.glob, 'baseClass', None)
 
             for prop_data in custom_props:
-                if not prop_data or getattr(prop_data, 'visible', True) is False:
+                if not prop_data:
                     continue
-                if prop_data.name not in self.active_props:
-                    continue
-                if not hasattr(prop_data, 'mesh_reference') or not prop_data.mesh_reference.render:
+                
+                # Check normal visibility flags alongside layout selection checkboxes
+                prop_vis = getattr(prop_data, 'visible', True)
+                mesh_vis = getattr(prop_data, 'is_mesh_visible', True)
+                if not prop_vis:
                     continue
                     
                 prop_matrix = QMatrix4x4()
@@ -112,8 +110,6 @@ class MultiPropManager():
                     if skeleton:
                         if hasattr(skeleton, 'bones') and bone_name in skeleton.bones: 
                             bone = skeleton.bones[bone_name]
-                        elif hasattr(skeleton, 'getBone'): 
-                            bone = skeleton.getBone(bone_name)
 
                 if bone:
                     is_parented = True
@@ -150,27 +146,51 @@ class MultiPropManager():
                 else:
                     user_transform.translate(float(pos[0]), float(pos[1]), float(pos[2]))
 
-                from PySide6.QtGui import QQuaternion, QVector3D
                 q_pitch = QQuaternion.fromAxisAndAngle(QVector3D(1.0, 0.0, 0.0), float(rot[0]))
                 q_yaw   = QQuaternion.fromAxisAndAngle(QVector3D(0.0, 1.0, 0.0), float(rot[1]))
                 q_roll  = QQuaternion.fromAxisAndAngle(QVector3D(0.0, 0.0, 1.0), float(rot[2]))
                 
                 combined_rotation = q_yaw * q_pitch * q_roll
                 user_transform.rotate(combined_rotation)
-                user_transform.scale(float(scl[0]), float(scl[1]), float(scl[2]))
+                
+                # Force a structural scaling minimum margin on flat assets 
+
+                sx = float(scl[0]) if float(scl[0]) > 0.001 else 1.0
+                sy = float(scl[1]) if float(scl[1]) > 0.001 else 1.0
+                sz = float(scl[2]) if float(scl[2]) > 0.001 else 1.0
+                user_transform.scale(sx, sy, sz)
 
                 if is_parented:
                     final_prop_matrix = prop_matrix * user_transform
                 else:
                     final_prop_matrix = user_transform
 
-                # 🛠️ THE CORRECT PYSIDE6 VALUE TRACKER:
-                # Swapped '.copyData()' for '.data()' to stop the scene queue crashes completely!
+                final_mvp = proj_view_matrix * final_prop_matrix
                 prop_data.runtime_gl_matrix = final_prop_matrix.data()
 
-                final_mvp = proj_view_matrix * final_prop_matrix
-                robj = prop_data.mesh_reference.render
-                robj.draw(final_mvp, campos, light_obj, False)
+                if is_parented and prop_data.emitter:
+                    m_data = final_prop_matrix.data()
+                    prop_data.emitter.world_position = [float(m_data[12]), float(m_data[13]), float(m_data[14])]
+                elif prop_data.emitter:
+                    prop_data.emitter.world_position = [float(pos[0]), float(pos[1]), float(pos[2])]
+
+                if mesh_vis:
+                    robj = prop_data.mesh_reference.render
+                    robj.draw(final_mvp, campos, light_obj, False)
+
+
+                # Execute original particle draw passes completely inside the master framework
+                if prop_data.emitter and getattr(prop_data, 'is_emitting', True):
+                    emode = prop_data.emitter.emitter_mode
+                    
+                    if emode == "PHYSICAL_MESH":
+                        prop_data.emitter.drawMesh(proj_view_matrix, campos)
+                    elif emode == "PARTICLES":
+                        prop_data.emitter.drawDustParticles()
+                    elif emode == "SPRITES":
+                        prop_data.emitter.drawSprites()
+                    elif emode == "TEXTURED_SPRITES":
+                        prop_data.emitter.drawTexSprites()
 
                 gl.glActiveTexture(gl.GL_TEXTURE0)
                 gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
@@ -192,7 +212,7 @@ class MultiPropManager():
                 else:
                     room_w = float(getattr(self.glob, 'last_cached_room_w', 10.0))
                     room_l = float(getattr(self.glob, 'last_cached_room_l', 10.0))
-                
+                floor_matrix.scale(float(room_w), 1.0, float(room_l))
                 floor_matrix.scale(float(room_w), 1.0, float(room_l))
                 floor_render_obj.draw(proj_view_matrix * floor_matrix, campos, light_obj, False)
                 gl.glActiveTexture(gl.GL_TEXTURE0)

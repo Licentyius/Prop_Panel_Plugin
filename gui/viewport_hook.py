@@ -28,7 +28,6 @@ def perform_background_hardware_link(glob_reference, main_window, prop_manager_w
 
                 # called in propmanager
                 propman_pipeline.drawProps(proj_view_matrix, campos, parent.light)
-                propman_pipeline.drawProps(proj_view_matrix, campos, parent.light)  # TODO should not be called twice later
 
             except Exception as render_err:
                 print(f"[Prop Studio Debug] Scene queue execution crash: {render_err}")

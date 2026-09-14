@@ -958,17 +958,6 @@ class PropManagerPanel(MHGroupBox):
         bc = self.glob.baseClass
         if bc is None: 
             return
-        pinfo = bc.baseInfo
-        if not "props" in pinfo or pbone not in pinfo["props"]: 
-            return
-        pbone = pinfo["props"][pbone]
-        skeleton = bc.pose_skeleton if bc.in_posemode else bc.skeleton
-        if skeleton is None: 
-            skeleton = bc.default_skeleton
-        if skeleton is None: 
-            return
-        if pbone in skeleton.bones:
-            bone = skeleton.bones[pbone]
-            b_coord = bone.posetailPos if bc.in_posemode else bone.tailPos
-            if self.current_prop: 
-                self.current_prop.position += b_coord
+        b_coord, bone = bc.getVirtualBonePosition(pbone)
+        if bone and self.current_prop: 
+            self.current_prop.position += b_coord
