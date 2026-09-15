@@ -4,7 +4,7 @@
 ######
 from .prop_manager import MultiPropManager
 
-# FIXED: Standard class bridge routes the old JSON-manifest imports 
+# Zombie Now -Standard class bridge routes the old JSON-manifest imports 
 # straight into the now working MultiPropManager pipeline seamlessly!
 class Multi_Prop(MultiPropManager):
     """

@@ -1,6 +1,8 @@
 ######
-## Prop Manager V2.3 (Unified Edition v1-still needs work)
-## Part of the MakeHuman 2 Project contributed by Elvaerwyn_MH2 2026
+#
+# Prop Manager V2.5 (Fully Dynamic Unified Edition)
+# Cleaned, Conflict-Free, and Data-Driven Interpreter
+#
 ######
 from PySide6.QtGui import QMatrix4x4, QVector3D, QVector4D, QQuaternion
 import OpenGL
@@ -9,7 +11,7 @@ import numpy as np
 
 class MultiPropManager():
     """
-    Manages active non-deforming static props, socket attachment transformations,
+    Manages active static props, socket attachment transformations,
     and coordinates rendering states via direct injection into the OpenGL draw loops.
     """
     def __init__(self, shaders, glob):
@@ -28,8 +30,6 @@ class MultiPropManager():
         self.fromGlobal(False)
 
     def fromGlobal(self, load_json):
-        if load_json and hasattr(self.glob, 'readShaderInitJSON'):
-            pass
         self.setShader()
 
     def toGlobal(self):
@@ -53,8 +53,7 @@ class MultiPropManager():
             val = relative_transform.get(key, [0.0, 0.0, 0.0] if key != "scale" else [1.0, 1.0, 1.0])
             if isinstance(val, (list, tuple, np.ndarray)):
                 if len(val) >= 3: t_block[key] = [float(val[0]), float(val[1]), float(val[2])]
-                elif len(val) == 1: t_block[key] = [float(val[0])] * 3
-                else: t_block[key] = [0.0, 0.0, 0.0] if key != "scale" else [1.0, 1.0, 1.0]
+                else: t_block[key] = [1.0, 1.0, 1.0]
             else:
                 t_block[key] = [float(val)] * 3
                 
@@ -76,26 +75,24 @@ class MultiPropManager():
         if asset_id in self.active_props:
             t_block = self.active_props[asset_id]["transform"]
             if translation is not None:
-                t_block["translation"] = [float(translation[0]), float(translation[1]), float(translation[2])] if len(translation) >= 3 else [float(translation)] * 3
+                t_block["translation"] = [float(translation[0]), float(translation[1]), float(translation[2])]
             if rotation is not None:
-                t_block["rotation"] = [float(rotation[0]), float(rotation[1]), float(rotation[2])] if len(rotation) >= 3 else [float(rotation)] * 3
+                t_block["rotation"] = [float(rotation[0]), float(rotation[1]), float(rotation[2])]
             if scale is not None:
-                t_block["scale"] = [float(scale[0]), float(scale[1]), float(scale[2])] if len(scale) >= 3 else [float(scale[0])] * 3
+                t_block["scale"] = [float(scale[0]), float(scale[1]), float(scale[2])]
 
     def drawProps(self, proj_view_matrix, campos, light_obj):
         custom_props = getattr(self.glob, 'custom_props_list', None)
 
-        if len(self.active_props) > 0 and custom_props:
+        if custom_props:
             bc = getattr(self.glob, 'baseClass', None)
 
             for prop_data in custom_props:
                 if not prop_data:
                     continue
                 
-                # Check normal visibility flags alongside layout selection checkboxes
-                prop_vis = getattr(prop_data, 'visible', True)
-                mesh_vis = getattr(prop_data, 'is_mesh_visible', True)
-                if not prop_vis:
+                # Check normal visibility flags natively out of the live UI checkboxes
+                if not getattr(prop_data, 'visible', True):
                     continue
                     
                 prop_matrix = QMatrix4x4()
@@ -107,9 +104,8 @@ class MultiPropManager():
                     skeleton = bc.pose_skeleton if bc.in_posemode else bc.skeleton
                     if skeleton is None: 
                         skeleton = bc.default_skeleton
-                    if skeleton:
-                        if hasattr(skeleton, 'bones') and bone_name in skeleton.bones: 
-                            bone = skeleton.bones[bone_name]
+                    if skeleton and hasattr(skeleton, 'bones') and bone_name in skeleton.bones: 
+                        bone = skeleton.bones[bone_name]
 
                 if bone:
                     is_parented = True
@@ -122,10 +118,8 @@ class MultiPropManager():
 
                     if b_rot is not None and b_pos is not None:
                         comp_m = np.eye(4, dtype=np.float32)
-                        if b_rot.shape == (3, 3):
-                            comp_m[0:3, 0:3] = b_rot
-                        elif b_rot.shape == (4, 4):
-                            comp_m[0:3, 0:3] = b_rot[0:3, 0:3]
+                        if b_rot.shape == (3, 3): comp_m[0:3, 0:3] = b_rot
+                        elif b_rot.shape == (4, 4): comp_m[0:3, 0:3] = b_rot[0:3, 0:3]
                             
                         comp_m[0:3, 3] = [float(b_pos.x()), float(b_pos.y()), float(b_pos.z())]
                         for r in range(4):
@@ -135,7 +129,6 @@ class MultiPropManager():
                             prop_matrix.translate(b_pos.x(), b_pos.y(), b_pos.z())
 
                 user_transform = QMatrix4x4()
-                
                 pos = prop_data.position
                 rot = prop_data.rotation
                 scl = prop_data.scale
@@ -149,40 +142,46 @@ class MultiPropManager():
                 q_pitch = QQuaternion.fromAxisAndAngle(QVector3D(1.0, 0.0, 0.0), float(rot[0]))
                 q_yaw   = QQuaternion.fromAxisAndAngle(QVector3D(0.0, 1.0, 0.0), float(rot[1]))
                 q_roll  = QQuaternion.fromAxisAndAngle(QVector3D(0.0, 0.0, 1.0), float(rot[2]))
+                user_transform.rotate(q_yaw * q_pitch * q_roll)
                 
-                combined_rotation = q_yaw * q_pitch * q_roll
-                user_transform.rotate(combined_rotation)
-                
-                # Force a structural scaling minimum margin on flat assets 
+                user_transform.scale(float(scl[0]), float(scl[1]), float(scl[2]))
 
-                sx = float(scl[0]) if float(scl[0]) > 0.001 else 1.0
-                sy = float(scl[1]) if float(scl[1]) > 0.001 else 1.0
-                sz = float(scl[2]) if float(scl[2]) > 0.001 else 1.0
-                user_transform.scale(sx, sy, sz)
-
-                if is_parented:
-                    final_prop_matrix = prop_matrix * user_transform
-                else:
-                    final_prop_matrix = user_transform
-
+                final_prop_matrix = prop_matrix * user_transform if is_parented else user_transform
                 final_mvp = proj_view_matrix * final_prop_matrix
                 prop_data.runtime_gl_matrix = final_prop_matrix.data()
 
-                if is_parented and prop_data.emitter:
-                    m_data = final_prop_matrix.data()
-                    prop_data.emitter.world_position = [float(m_data[12]), float(m_data[13]), float(m_data[14])]
-                elif prop_data.emitter:
-                    prop_data.emitter.world_position = [float(pos[0]), float(pos[1]), float(pos[2])]
+                # =============================
+                # 🛠️ THE PHYSICS UNCLOCK PLUG:
+                # =============================
+                if prop_data.emitter:
+                    prop_data.emitter.world_position = [0.0, 0.0, 0.0]
+                    prop_data.emitter.runtime_gl_matrix = final_prop_matrix.data()
 
-                if mesh_vis:
-                    robj = prop_data.mesh_reference.render
-                    robj.draw(final_mvp, campos, light_obj, False)
+                # ====================================
+                # SOLID PROPERTIES RESTORATION TRACK:
+                # ====================================
+                gl.glEnable(gl.GL_DEPTH_TEST)
+                gl.glDepthMask(gl.GL_TRUE)
+                gl.glDisable(gl.GL_BLEND)
 
+                # Ghost Mode Intercept Verification
+                mesh_vis = getattr(prop_data, 'is_mesh_visible', True)
+                if mesh_vis and hasattr(prop_data, 'mesh_reference') and getattr(prop_data.mesh_reference, 'render', None) is not None:
+                    prop_data.mesh_reference.render.draw(final_mvp, campos, light_obj, False)
 
-                # Execute original particle draw passes completely inside the master framework
+                # ==================================
+                # 🛠️ THE MATERIAL DISCONNECT PLUG:
+                # ==================================
+                gl.glUseProgram(0)                     # Unbind the prop mesh's active shader program
+                gl.glBindTexture(gl.GL_TEXTURE_2D, 0)  # Unbind the prop mesh's texture layer
+                
+                gl.glEnable(gl.GL_BLEND)
+                gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE) # Enforce glowing fire blending
+                gl.glDisable(gl.GL_LIGHTING)           # Protect particles from 3D shadows
+
+                # Route draw commands directly to the core emitter methods cleanly
                 if prop_data.emitter and getattr(prop_data, 'is_emitting', True):
                     emode = prop_data.emitter.emitter_mode
-                    
                     if emode == "PHYSICAL_MESH":
                         prop_data.emitter.drawMesh(proj_view_matrix, campos)
                     elif emode == "PARTICLES":
@@ -191,28 +190,32 @@ class MultiPropManager():
                         prop_data.emitter.drawSprites()
                     elif emode == "TEXTURED_SPRITES":
                         prop_data.emitter.drawTexSprites()
+                    elif emode == "BILLBOARD":
+                        prop_data.emitter.drawBillboards(campos)
 
+
+                # Reset state registers at the end of each object slice cycle pass
                 gl.glActiveTexture(gl.GL_TEXTURE0)
                 gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
+                gl.glEnable(gl.GL_DEPTH_TEST)
+                gl.glDepthMask(gl.GL_TRUE)
+                gl.glDisable(gl.GL_BLEND)
 
+        # Draw structural environment grid floor below everything safely
         if hasattr(self.glob, 'prop_manager_pipeline') and self.glob.prop_manager_pipeline:
             left_panel = getattr(self.glob.prop_manager_pipeline, 'leftPanel', None)
             if left_panel and hasattr(left_panel, 'room_floor_mesh') and left_panel.room_floor_mesh.render:
                 floor_render_obj = left_panel.room_floor_mesh.render
                 floor_matrix = QMatrix4x4()
                 
-                room_w = 10.0
-                room_l = 10.0
-                bc = getattr(self.glob, 'baseClass', None)
+                room_w, room_l = 10.0, 10.0
                 if bc and hasattr(bc, 'scene') and bc.scene and hasattr(bc.scene, 'floorsize'):
                     f_size = bc.scene.floorsize
                     if isinstance(f_size, (list, tuple, np.ndarray)) and len(f_size) >= 3:
-                        room_w = float(f_size[0])
-                        room_l = float(f_size[2])
-                else:
-                    room_w = float(getattr(self.glob, 'last_cached_room_w', 10.0))
-                    room_l = float(getattr(self.glob, 'last_cached_room_l', 10.0))
-                floor_matrix.scale(float(room_w), 1.0, float(room_l))
+                        room_w, room_l = float(f_size[0]), float(f_size[2])
+                
+
+                room_l = float(f_size[2])
                 floor_matrix.scale(float(room_w), 1.0, float(room_l))
                 floor_render_obj.draw(proj_view_matrix * floor_matrix, campos, light_obj, False)
                 gl.glActiveTexture(gl.GL_TEXTURE0)
@@ -220,3 +223,4 @@ class MultiPropManager():
 
         self.setShader()
         gl.glUseProgram(0)
+

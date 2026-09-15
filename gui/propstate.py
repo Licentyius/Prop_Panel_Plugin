@@ -51,7 +51,7 @@ class StateEquipping(PropState):
             prop.local_offset_pos = [0.0, 0.0, 0.0]
             
             if base_class and getattr(base_class, 'pose_skeleton', None):
-                # Standardized function name spelling matches the character skeleton rig
+
                 coord, bone = base_class.getVirtualBonePosition("hand_R")
                 if bone is not None:
                     bone_pos = [float(coord[0]), float(coord[1]), float(coord[2])]

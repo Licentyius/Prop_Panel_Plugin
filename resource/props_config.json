@@ -1,11 +1,11 @@
 {
     "cone": {
-        "id": "magic_cone_torch",
+        "id": "magic_cone_torch2",
         "name": "Ethereal Flame Torch",
         "type": "EMITTER",
         "object_type": "EMITTER",
         "mesh_path": "data/props/cone.obj",
-        "is_mesh_visible": false,
+        "is_mesh_visible": true,
         "is_emitting": true,
         "emitter_mode": "TEXTURED_SPRITES",
         "visible": true,
@@ -15,10 +15,15 @@
         "particle_count": 450,
         "max_particles": 450,
         "particle_texture": "data/props/particles/flame.png",
-        "color_rgba": [1.0, 1.0, 1.0, 1.0]
+        "particle_draw_size": 24.0,
+        "color_rgba": [1.0, 1.0, 1.0, 1.0],
+        "physics": {
+            "initialSpeed": { "min": 4.5, "max": 9.0 },
+            "gravity": { "x": 0.0, "y": -2.5, "z": 0.0 }
+        }
     },
     "torch": {
-        "id": "magic_cone_torch",
+        "id": "magic_cone_torch1",
         "name": "Ethereal Flame Torch",
         "type": "EMITTER",
         "object_type": "EMITTER",
@@ -33,7 +38,12 @@
         "particle_count": 450,
         "max_particles": 450,
         "particle_texture": "data/props/particles/flame.png",
-        "color_rgba": [1.0, 1.0, 1.0, 1.0]
+        "particle_draw_size": 24.0,
+        "color_rgba": [1.0, 1.0, 1.0, 1.0],
+        "physics": {
+            "initialSpeed": { "min": 4.5, "max": 9.0 },
+            "gravity": { "x": 0.0, "y": -2.5, "z": 0.0 }
+        }
     },
     "ball": {
         "id": "ball",
@@ -49,30 +59,65 @@
         "use_parenting": true,
         "default_bone": "hand_R",
         "parent_bone": "hand_R",
-        "particle_count": 250,
-        "max_particles": 250,
+        "particle_count": 350,
+        "max_particles": 500,
         "particle_texture": "data/props/particles/flame.png",
+        "particle_draw_size": 100.0,
         "color_rgba": [1.0, 1.0, 1.0, 1.0],
         "transparent": true,
-        "alphaToCoverage": true,
-        "blend_mode": "ALPHA_CLIP",
-        "alpha_threshold": 0.1
+        "blend_mode": "ADDITIVE",
+        "physics": {
+            "initialSpeed": { "min": 5.0, "max": 10.0 },
+            "gravity": { "x": 0.0, "y": -1.5, "z": 0.0 }
+        }
     },
     "torch_01": {
+        "id": "torch_01",
         "name": "Fire Magic Torch",
         "type": "EMITTER",
+        "object_type": "EMITTER",
         "mesh_path": "data/props/donut1.obj",
+        "is_mesh_visible": true,
+        "is_emitting": true,
+        "emitter_mode": "TEXTURED_SPRITES",
+        "visible": true,
+        "use_parenting": true,
+        "default_bone": "hand_R",
+        "parent_bone": "hand_R",
         "particle_count": 300,
+        "max_particles": 500,
         "particle_texture": "data/props/particles/flame.png",
-        "color_rgba": [1.0, 0.4, 0.0, 1.0]
+        "particle_draw_size": 60.0,
+        "color_rgba": [1.0, 0.4, 0.0, 1.0],
+        "transparent": true,
+        "blend_mode": "ADDITIVE",
+        "physics": {
+            "initialSpeed": { "min": 6.0, "max": 12.0 },
+            "gravity": { "x": 0.0, "y": -2.0, "z": 0.0 }
+        }
     },
     "magic_lamp": {
+        "id": "magic_lamp",
         "name": "Simple Glow Lamp",
         "type": "EMITTER",
+        "object_type": "EMITTER",
         "mesh_path": "data/props/cocoon.obj",
+        "is_mesh_visible": true,
+        "is_emitting": true,
+        "emitter_mode": "PARTICLES",
+        "visible": true,
+        "use_parenting": true,
+        "default_bone": "hand_R",
+        "parent_bone": "hand_R",
         "particle_count": 100,
+        "max_particles": 100,
         "particle_texture": "PLAIN",
-        "color_rgba": [1.0, 1.0, 0.8, 1.0]
+        "particle_draw_size": 12.0,
+        "color_rgba": [1.0, 1.0, 0.8, 1.0],
+        "physics": {
+            "initialSpeed": { "min": 2.0, "max": 4.5 },
+            "gravity": { "x": 0.0, "y": -0.5, "z": 0.0 }
+        }
     },
     "magic_cone_torch": {
         "id": "magic_cone_torch",
@@ -82,6 +127,7 @@
         "mesh_path": "data/props/star.obj",
         "is_mesh_visible": true,
         "is_emitting": true,
+        "emitter_mode": "TEXTURED_SPRITES",
         "visible": true,
         "use_parenting": true,
         "default_bone": "hand_R",
@@ -89,25 +135,35 @@
         "particle_count": 450,
         "max_particles": 450,
         "particle_texture": "data/props/particles/flame.png",
-        "color_rgba": [1.0, 1.0, 1.0, 1.0]
+        "particle_draw_size": 24.0,
+        "color_rgba": [1.0, 1.0, 1.0, 1.0],
+        "physics": {
+            "initialSpeed": { "min": 4.5, "max": 9.0 },
+            "gravity": { "x": 0.0, "y": -2.5, "z": 0.0 }
+        }
     },
     "cube": {
-        "id": "cube",
         "name": "Cube Emitter",
         "type": "EMITTER",
         "object_type": "EMITTER",
         "mesh_path": "data/props/cube.obj",
         "is_mesh_visible": true,
         "is_emitting": true,
-        "emitter_mode": "PARTICLES",
+        "emitter_mode": "TEXTURED_SPRITES",
+        "emitter_object": "data/props/plane.obj",
         "visible": true,
         "use_parenting": true,
         "default_bone": "hand_R",
         "parent_bone": "hand_R",
         "particle_count": 250,
         "max_particles": 250,
+        "particle_draw_size": 124.0,
         "particle_texture": "data/props/particles/water_drop.png",
-        "color_rgba": [0.2, 0.6, 1.0, 1.0]
+        "color_rgba": [0.2, 0.6, 1.0, 1.0],
+        "physics": {
+            "initialSpeed": { "min": 3.0, "max": 6.0 },
+            "gravity": { "x": 0.0, "y": -3.0, "z": 0.0 }
+        }
     },
     "wizard_wand_01": {
         "id": "wizard_wand_01",
@@ -118,19 +174,20 @@
         "is_mesh_visible": true,
         "is_emitting": true,
         "emitter_mode": "TEXTURED_SPRITES",
-        "emitter_object": "data/props/plane.obj",
         "visible": true,
         "use_parenting": true,
         "default_bone": "hand_R",
         "parent_bone": "hand_R",
         "particle_count": 350,
         "max_particles": 350,
-        "particle_texture": "data/props/particles/particles.png",
+        "particle_texture": "data/props/particles/flame.png",
         "particle_draw_size": 16.0,
         "color_rgba": [1.0, 0.5, 0.1, 1.0],
-        "scale": [1.0, 1.0, 1.0],
-        "position": [0.0, 0.0, 0.0],
-        "rotation": [0.0, 0.0, 0.0]
+        "scale": [1.0, 1.0, 1.0],        
+        "physics": {
+            "initialSpeed": { "min": 8.0, "max": 14.0 },
+            "gravity": { "x": 0.0, "y": -1.2, "z": 0.0 }
+        }
     },
     "cosmic_staff": {
         "id": "cosmic_staff",
@@ -149,7 +206,11 @@
         "max_particles": 500,
         "particle_texture": "data/props/particles/particles.png",
         "particle_draw_size": 8.0,
-        "color_rgba": [0.3, 0.1, 0.9, 1.0]
+        "color_rgba": [0.3, 0.1, 0.9, 1.0],
+        "physics": {
+            "initialSpeed": { "min": 5.0, "max": 11.5 },
+            "gravity": { "x": 0.2, "y": 0.5, "z": -0.2 }
+        }
     },
     "magic_shield": {
         "id": "magic_shield",
@@ -157,7 +218,7 @@
         "type": "EMITTER",
         "object_type": "EMITTER",
         "mesh_path": "data/props/plane.obj",
-        "is_mesh_visible": false,
+        "is_mesh_visible": true,
         "is_emitting": true,
         "emitter_mode": "SPRITES",
         "visible": true,
@@ -168,7 +229,11 @@
         "max_particles": 150,
         "particle_texture": "PLAIN",
         "particle_draw_size": 32.0,
-        "color_rgba": [0.0, 0.8, 1.0, 0.6]
+        "color_rgba": [0.0, 0.8, 1.0, 0.6],
+        "physics": {
+            "initialSpeed": { "min": 1.0, "max": 2.5 },
+            "gravity": { "x": 0.0, "y": 0.0, "z": 0.0 }
+        }
     },
     "healing_aura": {
         "id": "healing_aura",
@@ -187,9 +252,10 @@
         "max_particles": 200,
         "particle_texture": "data/props/particles/sparkle.png",
         "particle_draw_size": 16.0,
-        "color_rgba": [0.2, 1.0, 0.4, 0.8]
+        "color_rgba": [0.2, 1.0, 0.4, 0.8],
+        "physics": {
+            "initialSpeed": { "min": 1.5, "max": 5.0 },
+            "gravity": { "x": 0.0, "y": 0.4, "z": 0.0 }
+        }
     }
 }
-
-
-

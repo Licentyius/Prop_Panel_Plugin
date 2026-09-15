@@ -34,9 +34,9 @@ _plugin_root = os.path.abspath(os.path.join(_current_dir, ".."))
 if _plugin_root not in sys.path:
     sys.path.insert(0, _plugin_root)
 
-from ..opengl.prop_manager import MultiPropManager
-from ..core.particle_engine import live_particle_system
-from ..core.emitter_prop import MH2PropParticle, MH2LiveEmitterProp
+from mh2_official_tools.prop_panel.opengl.prop_manager import MultiPropManager
+from mh2_official_tools.prop_panel.core.particle_engine import live_particle_system
+from mh2_official_tools.prop_panel.core.emitter_prop import MH2PropParticle, MH2LiveEmitterProp
 import random
 import time
 
@@ -547,24 +547,20 @@ class PropManLeftPanel(QWidget):
         new_studio_asset.object_type = prop_type
         new_studio_asset.type = prop_type
         
-        # Route config parameters straight out of the JSON map onto the live scene element
+        # 🟢 MOVE ASSIGNMENTS ABOVE THE WALL: Map your variables before exiting the function!
         new_studio_asset.is_mesh_visible = bool(asset_profile.get("is_mesh_visible", True))
         new_studio_asset.visible = new_studio_asset.is_mesh_visible
+        new_studio_asset.is_emitting = bool(asset_profile.get("is_emitting", True))
         
-        # Map all 4 mode descriptor variables out of JSON onto the live engine asset properties
         new_studio_asset.emitter_mode = str(asset_profile.get("emitter_mode", "PARTICLES")).upper().strip()
         new_studio_asset.particle_texture = str(asset_profile.get("particle_texture", "PLAIN"))
         new_studio_asset.particle_draw_size = float(asset_profile.get("particle_draw_size", 6.0))
-        
-        # Route fallback colors properly out of varying manifest naming iterations
         new_studio_asset.particle_color = asset_profile.get("particle_color", asset_profile.get("color_rgba", [1.0, 0.4, 0.0, 1.0]))
         
         new_studio_asset.parent_bone = asset_profile.get("default_bone", asset_profile.get("parent_bone", "hand_R"))
         new_studio_asset.use_parenting = True if prop_type == "EMITTER" else False
         new_studio_asset.position = np.array([0.0, 0.814, 0.0], dtype=np.float64)
 
-        # Check if asset is an emitter to bind tracking entities
-        new_studio_asset.is_emitting = bool(asset_profile.get("is_emitting", True))
         if new_studio_asset.is_emitting:
             new_studio_emitter = MH2LiveEmitterProp(self.glob, new_studio_asset.prop_id, asset_profile)
             new_studio_asset.emitter = new_studio_emitter
@@ -589,50 +585,9 @@ class PropManLeftPanel(QWidget):
         if hasattr(self, 'propman') and self.propman:
             self.propman.global_pipeline_refresh()
             
-        return True
+        return True # The function exits cleanly *after* processing every single property!
 
 
-        # after a return this code is NOT reached ...
-
-        class MHStudioLivePropObject:
-            def __init__(self):
-
-                self.prop_id = str(prop_id_key) 
-                self.name = prop_name           
-                self.type = prop_type
-                self.object_type = prop_type
-                self.path = full_obj_path
-                self.material_path = ""
-                self.position = [0.0, 0.814, 0.0] 
-                self.rotation = [0.0, 0.0, 0.0]
-                self.scale = [1.0, 1.0, 1.0]
-                self.use_parenting = True if prop_type == "EMITTER" else False
-                self.parent_bone = asset_profile.get("default_bone", "hand_R") if prop_type == "EMITTER" else "None"
-                self.visible = True
-                self.is_mesh_visible = asset_profile.get("is_mesh_visible", True)
-                self.is_emitting = asset_profile.get("is_emitting", True)
-                self.max_particles = asset_profile.get("particle_count", 300)
-                self.particle_color = asset_profile.get("color_rgba", [1.0, 0.5, 0.0, 1.0])
-                self.mesh_reference = None
-
-        new_studio_asset = MHStudioLivePropObject()
-
-        viewport_view = getattr(self.glob, 'openGLWindow', None)
-        if viewport_view and hasattr(viewport_view, 'loadObjMesh'):
-            new_studio_asset.mesh_reference = viewport_view.loadObjMesh(full_obj_path)
-        elif hasattr(self, 'propman') and hasattr(self.propman, 'compile_mesh'):
-            new_studio_asset.mesh_reference = self.propman.compile_mesh(full_obj_path)
-
-        if not hasattr(self.glob, 'custom_props_list'):
-            self.glob.custom_props_list = []
-        self.glob.custom_props_list.append(new_studio_asset)
-        
-        print(f"[Prop Studio Core] Successfully loaded and registered manifest entry: '{prop_name}' ({prop_type})")
-        
-        if hasattr(self.glob, 'openGLWindow') and self.glob.openGLWindow:
-            self.glob.openGLWindow.Tweak()
-            if hasattr(self.glob.openGLWindow, 'update'):
-                self.glob.openGLWindow.update()
     def on_ghost_toggled(self, checked):
         """Fires when clicking the ghost checkbox to update manifest states and live scene meshes instantly."""
         global _standalone_studio_dock_instance
@@ -646,20 +601,21 @@ class PropManLeftPanel(QWidget):
             is_mesh_visible = not checked
             loaded_manifest[active_id]["is_mesh_visible"] = is_mesh_visible
             
-            # Pushes visibility flag updates instantly onto the live mesh memory array
+            # =====================================================================
+            # 🛠️ LIVE SCENE COORD SYNC: Update the active running viewport object!
+            # =====================================================================
             custom_pool = getattr(self.glob, 'custom_props_list', [])
             for prop in custom_pool:
                 target_id = getattr(prop, 'prop_id', getattr(prop, 'name', ''))
                 if str(target_id).lower() == str(active_id).lower() or str(getattr(prop, 'name', '')).lower() == str(active_id).lower():
                     prop.is_mesh_visible = is_mesh_visible
-                    prop.visible = is_mesh_visible  # Keeps both boolean channels perfectly paired
+                    prop.visible = is_mesh_visible  
 
             update_prop_json_entry(active_id, {"is_mesh_visible": is_mesh_visible})
             print(f"[Prop Studio Context] Ghost option updated and saved for item: {active_id}")
 
             if hasattr(self.glob, 'openGLWindow') and self.glob.openGLWindow:
                 self.glob.openGLWindow.update()
-
 
     def on_emission_loop_toggled(self, checked):
         """Fires when clicking the emission checkbox to flip asset types in real-time."""
@@ -675,10 +631,11 @@ class PropManLeftPanel(QWidget):
             target_type = "EMITTER" if checked else "STATIC"
             loaded_manifest[active_id]["type"] = target_type
             
+            # Update live engine instance structures
             custom_pool = getattr(self.glob, 'custom_props_list', [])
             for prop in custom_pool:
                 target_id = getattr(prop, 'prop_id', getattr(prop, 'name', ''))
-                if str(target_id).lower() == str(active_id).lower():
+                if str(target_id).lower() == str(active_id).lower() or str(getattr(prop, 'name', '')).lower() == str(active_id).lower():
                     prop.type = target_type
                     prop.object_type = target_type
                     prop.is_emitting = checked
@@ -918,17 +875,28 @@ class PropManLeftPanel(QWidget):
     def sync_density_to_active_prop(self, value):
         """Live pushes slider adjustments straight to the particle memory buffers."""
         if hasattr(self, 'current_prop') and self.current_prop:
-            self.current_prop.emitter.max_particles = int(value)
+            if hasattr(self.current_prop, 'emitter') and self.current_prop.emitter:
+                self.current_prop.emitter.max_particles = int(value)
+            
+            # Save the value straight back to your configuration json file dynamically
+            active_id = getattr(self.current_prop, 'prop_id', getattr(self.current_prop, 'name', ''))
+            if active_id:
+                update_prop_json_entry(active_id, {"particle_count": int(value)})
+                
             print(f"[FX Tuning] Stream density capped at: {int(value)} particles for {self.current_prop.name}")
 
     def sync_size_to_active_prop(self, value):
         """Live maps pixel weights onto custom assets for the OpenGL draw pass to read."""
         if hasattr(self, 'current_prop') and self.current_prop:
-            # Inject a dynamic size attribute directly onto the active prop object
             self.current_prop.particle_draw_size = float(value)
+            
+            # Save the value straight back to your configuration json file dynamically
+            active_id = getattr(self.current_prop, 'prop_id', getattr(self.current_prop, 'name', ''))
+            if active_id:
+                update_prop_json_entry(active_id, {"particle_draw_size": float(value)})
+
             if self.glob and getattr(self.glob, 'openGLWindow', None):
                 self.glob.openGLWindow.update()
-
     def _make_spinbox(self, is_rotation=False, is_scale=False):
         """Internal helper factory stamps out standardized PySide spinbox fields."""
         sb = QDoubleSpinBox()
@@ -1075,13 +1043,37 @@ class PropManagerPanel(MHGroupBox):
 
     def execute_master_heartbeat_pulse(self):
         """Unified system heartbeat pumps FSM ticks and particle physics calculations."""
-        # TODO both functions are not yet working, correct location?
         # 1. Pump the state machine transition pipelines
         if hasattr(self, 'pump_state_machine_tick'):
-            self.pump_state_machine_tick()
+            try:
+                self.pump_state_machine_tick()
+            except Exception:
+                pass
             
-        # 2. Pump the live particle engine physics translations
-        self.calculate_live_particle_physics_tick()
+        # ======================
+        # 🛠️ THE TIMELINE PLUG: 
+        # ======================
+        try:
+            props_list = getattr(self.glob, 'custom_props_list', [])
+            if props_list:
+                from ..core.particle_engine import live_particle_system
+                
+                # Active tick call pumps the velocity vectors and physics calculations!
+                live_particle_system.tick_physics(props_list)
+                
+                # Update loop states on active emitter objects
+                for prop in props_list:
+                    if getattr(prop, 'is_emitting', True) and hasattr(prop, 'emitter') and prop.emitter:
+                        # Pass a steady frame delta constant to force positions up!
+                        prop.emitter.loop(2, 0.033)
+        except Exception as e:
+            print(f"[Prop Studio Heartbeat Warning] Simulation pump failed: {e}")
+
+        # Command the OpenGL viewport window to refresh and repaint the scene
+        if self.glob and getattr(self.glob, 'openGLWindow', None):
+            if hasattr(self.glob.openGLWindow, 'update'):
+                self.glob.openGLWindow.update()
+
 
     def calculate_live_particle_physics_tick(self):
         """Merged System Heartbeat: Processes particle trajectory updates safely without duplicate overrides."""
@@ -1089,9 +1081,16 @@ class PropManagerPanel(MHGroupBox):
         if not props_list:
             return
 
+
+        # Repaint the viewport window canvas cleanly
+        if self.glob and getattr(self.glob, 'openGLWindow', None):
+            self.glob.openGLWindow.update()
+
+
         dt = 0.033 # Fixed 30 FPS physics calculation delta step
 
         for prop in props_list:
+
             # Check normal emission switches (Play/Pause interface sync)
             if not getattr(prop, 'is_emitting', False):
                 continue
@@ -1108,7 +1107,7 @@ class PropManagerPanel(MHGroupBox):
                     emitter.newParticles(2)
 
                 # 2. Progress particle coordinates smoothly along velocity vectors
-                # This executes your clean, non-hardcoded trajectory tracks inside emitter_prop.py
+                # This executes a clean, non-hardcoded trajectory track inside emitter_prop.py
                 for p in emitter.particles_pool:
                     p.update(dt)
 
@@ -1974,8 +1973,7 @@ class PropManagerPanel(MHGroupBox):
         bc = getattr(self.glob, 'baseClass', None)
         if bc is None: 
             return
-        
-        # VERIFY: Ensure this is spelled completely correctly with the 'i' here too!
+ 
         b_coord, bone = bc.getVirtualBonePosition(pbone)
 
         if bone and self.current_prop: 

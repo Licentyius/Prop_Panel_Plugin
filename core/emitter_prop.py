@@ -1,6 +1,6 @@
 ######
 #
-# Emitter Prop object type V1.3 Elvaerwyn_MH2 2026
+# Emitter Prop object type V1.3a Elvaerwyn_MH2 2026
 # For use in the prop panel plugin for Makehuman 2
 #
 ######
@@ -139,9 +139,7 @@ class MH2LiveEmitterProp:
         gl.glPushMatrix()
         gl.glPushAttrib(gl.GL_POINT_BIT | gl.GL_CURRENT_BIT | gl.GL_ENABLE_BIT | gl.GL_TEXTURE_BIT)
         gl.glDisable(gl.GL_LIGHTING)
-        
-        # 🛠️ FIXED: We skip the glMultMatrixf hold entirely so particles can 
-        # escape the ball's boundaries and travel freely into absolute world air space!
+
         gl.glEnable(gl.GL_NORMALIZE)
 
     def finishOpenGL(self):
@@ -179,15 +177,18 @@ class MH2LiveEmitterProp:
         try:
             self.startOpenGL()
             gl.glEnable(gl.GL_BLEND)
-            gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE) # Realistic additive alpha blending
+            gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE) # Immersive additive alpha fire blending
             gl.glEnable(gl.GL_POINT_SPRITE)
             gl.glTexEnvi(gl.GL_POINT_SPRITE, gl.GL_COORD_REPLACE, gl.GL_TRUE)
             gl.glEnable(gl.GL_TEXTURE_2D)
             gl.glActiveTexture(gl.GL_TEXTURE0)
             
             if self.texture is not None:
-                # 🛠️ FIXED: Extract the raw integer handle via PySide6's native textureId() method!
-                if hasattr(self.texture, 'textureId'):
+
+                # Call the native PySide6 .bind() routine directly on the QOpenGLTexture object wrapper!
+                if hasattr(self.texture, 'bind'):
+                    self.texture.bind() 
+                elif hasattr(self.texture, 'textureId'):
                     gl.glBindTexture(gl.GL_TEXTURE_2D, self.texture.textureId())
                 elif hasattr(self.texture, 'id'):
                     gl.glBindTexture(gl.GL_TEXTURE_2D, self.texture.id)
@@ -238,10 +239,10 @@ class MH2LiveEmitterProp:
 class MH2PropParticle:
     """A single particle element spawned by an emitter prop module."""
     def __init__(self, emitter):
-        # Establish the base absolute hand bone joint coordinates
-        base_x = float(emitter.world_position[0])
-        base_y = float(emitter.world_position[1])
-        base_z = float(emitter.world_position[2])
+        # 1. Your working skeletal tracking bone joint center offsets
+        base_x = float(emitter.world_position[0]) if hasattr(emitter.world_position, '__getitem__') else float(emitter.world_position)
+        base_y = float(emitter.world_position[1]) if hasattr(emitter.world_position, '__getitem__') else float(emitter.world_position)
+        base_z = float(emitter.world_position[2]) if hasattr(emitter.world_position, '__getitem__') else float(emitter.world_position)
 
         offset_x = 0.0
         offset_y = 0.0
@@ -250,19 +251,28 @@ class MH2PropParticle:
         if hasattr(emitter, 'obj') and emitter.obj and hasattr(emitter.obj, 'gl_coord'):
             coords = emitter.obj.gl_coord
             if coords is not None and len(coords) > 0:
-                # Average the model's baked coordinates to find its true spatial center
                 offset_x = float(np.mean([c[0] for c in coords]))
                 offset_y = float(np.mean([c[1] for c in coords]))
                 offset_z = float(np.mean([c[2] for c in coords]))
 
-        # Born where the solid geometry coordinates are actually rendering on screen
         self.x = base_x + offset_x
         self.y = base_y + offset_y
         self.z = base_z + offset_z
+ 
+        raw_color = getattr(emitter, 'particle_color', [1.0, 0.4, 0.0, 1.0])
+        if hasattr(raw_color, 'color_rgba'):
+            raw_color = raw_color.color_rgba
+        elif hasattr(raw_color, 'particle_color'):
+            raw_color = raw_color.particle_color
+
+        if isinstance(raw_color, (list, tuple)) and len(raw_color) >= 3:
+            self.color = [float(c) for c in raw_color[:4]]
+            if len(self.color) == 3:
+                self.color.append(1.0)
+        else:
+            self.color = [1.0, 0.4, 0.0, 1.0]
         
-        self.color = emitter.particle_color     
-        
-        # High-velocity trajectories to throw them into the air
+        # High-velocity trajectories to shoot them upward into viewport space
         self.vx = random.uniform(-0.5, 0.5)
         self.vy = random.uniform(4.5, 9.0)  
         self.vz = random.uniform(-0.5, 0.5)
@@ -271,7 +281,6 @@ class MH2PropParticle:
         self.scale = [0.1, 0.1, 0.1]
         self.lifetime = 0.0
         self.lifespan = random.uniform(0.6, 1.5)
-
 
     def is_dead(self):
         return self.lifetime > self.lifespan

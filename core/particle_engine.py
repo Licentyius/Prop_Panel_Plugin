@@ -1,6 +1,6 @@
 ######
 #
-# Particle Engine for the Emitter system in Prop Panel V1.3
+# Particle Engine for the Emitter system in Prop Panel V1.4
 # Contributed to Makehuman 2 by Elvaerwyn_MH2 2026
 #
 ######
@@ -23,10 +23,14 @@ class PrimitiveParticleEngine:
         dt = max(0.016, min(0.033, raw_dt))
 
         for prop in active_props_list:
-            prop_id = getattr(prop, 'name', None)
-            if not prop_id: 
+
+            raw_name = getattr(prop, 'name', '')
+            if not raw_name:
                 continue
-            p_emitter = prop.emitter
+                
+            # Safely unify the key string across all framework scripts
+            prop_id = raw_name.replace("prop_", "").strip().lower()
+            p_emitter = getattr(prop, 'emitter', None)
 
             if p_emitter is None:
                 continue
@@ -35,6 +39,7 @@ class PrimitiveParticleEngine:
                 self.emitter_pools[prop_id] = []
 
             is_emitting = getattr(prop, 'is_emitting', True)
+
 
             # TARGET ANCHOR: Check if parented to read live hand joint translations
             origin_pos = getattr(prop, 'position', [0.0, 0.0, 0.0])
@@ -83,7 +88,10 @@ class PrimitiveParticleEngine:
 
     def extract_flat_vertex_array(self, prop_id):
         """Flattens structured dictionaries into sequential coordinates for OpenGL inputs."""
-        pool = self.emitter_pools.get(prop_id, [])
+        # Unify the target string layout case-insensitively
+        clean_key = str(prop_id).replace("prop_", "").strip().lower()
+        
+        pool = self.emitter_pools.get(clean_key, [])
         flat_list = []
         
         for p in pool:
@@ -98,5 +106,6 @@ class PrimitiveParticleEngine:
                     flat_list.extend([0.0, 0.0, 0.0])
                     
         return flat_list
+
 
 live_particle_system = PrimitiveParticleEngine()
