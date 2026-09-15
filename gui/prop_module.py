@@ -1229,17 +1229,22 @@ class PropManagerPanel(MHGroupBox):
             print(f"[Prop Studio Addon] Export Failure: {msg}")
 
     def trigger_fx_play(self):
-        """Wakes up emissions and registers variables with the background worker loops."""
+        """Wakes up emissions and registers variables with the background worker loops accurately."""
         if self.current_prop:
             self.current_prop.is_emitting = True
             self.current_prop.object_type = "EMITTER"
             self.current_prop.type = "EMITTER"
             
-            # UNIQUE ID BRIDGING ANCHOR
-            prop_id = getattr(self.current_prop, 'name', 'ball')
+            # Use the true lowercase manifest ID key handle to stop cross-talk!
+            prop_id = getattr(self.current_prop, 'prop_id', getattr(self.current_prop, 'name', 'ball')).strip().lower()
             
             if prop_id not in live_particle_system.emitter_pools:
                 live_particle_system.emitter_pools[prop_id] = []
+            
+            # Neutralize real-world pause gap jumps instantly on unpause
+            import time
+            if hasattr(live_particle_system, 'last_update_tick'):
+                live_particle_system.last_update_tick = time.time()
             
             if self.leftPanel and hasattr(self.leftPanel, 'active_emit_cb'):
                 self.leftPanel.active_emit_cb.setChecked(True)
@@ -1254,10 +1259,12 @@ class PropManagerPanel(MHGroupBox):
             print(f"[FX Playback] Simulation paused.")
 
     def trigger_fx_stop(self):
-        """Clears memory blocks and forces a viewport canvas refresh loop."""
+        """Clears memory blocks using the unified manifest lookup tracking keys."""
         if self.current_prop:
             self.current_prop.is_emitting = False
-            prop_id = getattr(self.current_prop, 'name', 'ball')
+            
+            # Ensure the cleanup routine targets the correct dictionary key!
+            prop_id = getattr(self.current_prop, 'prop_id', getattr(self.current_prop, 'name', 'ball')).strip().lower()
             
             if hasattr(self.current_prop, 'particles_pool'):
                 self.current_prop.particles_pool.clear()
@@ -1272,6 +1279,7 @@ class PropManagerPanel(MHGroupBox):
                 
             self._trigger_viewport_redraw()
             print(f"[FX Playback] Simulation stopped and pools flushed for: {prop_id}")
+
 
     def setLeftPanel(self, panel):
         """Links the numeric coordinate input forms to this panel manager."""
