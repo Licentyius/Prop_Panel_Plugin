@@ -542,28 +542,36 @@ class PropManLeftPanel(QWidget):
         print(f"[Prop Studio Core] Deploying scene initialization for manifest key: {prop_id_key}")
         
         new_studio_asset = PropObject(prop_name, self.glob)
-        new_studio_asset.prop_id = str(prop_id_key)
+        # 🟢 THE MASTER PLUG: Explicitly save the lowercase manifest key handle!
+        new_studio_asset.prop_id = str(prop_id_key).strip().lower()
+        new_studio_asset.name = prop_name
         new_studio_asset.path = full_obj_path
         new_studio_asset.object_type = prop_type
         new_studio_asset.type = prop_type
         
-        # 🟢 MOVE ASSIGNMENTS ABOVE THE WALL: Map your variables before exiting the function!
+        # Route manifest parameters straight out of your JSON text blocks
         new_studio_asset.is_mesh_visible = bool(asset_profile.get("is_mesh_visible", True))
         new_studio_asset.visible = new_studio_asset.is_mesh_visible
-        new_studio_asset.is_emitting = bool(asset_profile.get("is_emitting", True))
         
+        # Force the mode strings natively into the parent tracks
         new_studio_asset.emitter_mode = str(asset_profile.get("emitter_mode", "PARTICLES")).upper().strip()
         new_studio_asset.particle_texture = str(asset_profile.get("particle_texture", "PLAIN"))
-        new_studio_asset.particle_draw_size = float(asset_profile.get("particle_draw_size", 6.0))
-        new_studio_asset.particle_color = asset_profile.get("particle_color", asset_profile.get("color_rgba", [1.0, 0.4, 0.0, 1.0]))
+        new_studio_asset.particle_draw_size = float(asset_profile.get("particle_draw_size", 16.0))
+        new_studio_asset.particle_color = asset_profile.get("particle_color", asset_profile.get("color_rgba", [1.0, 1.0, 1.0, 1.0]))
         
         new_studio_asset.parent_bone = asset_profile.get("default_bone", asset_profile.get("parent_bone", "hand_R"))
         new_studio_asset.use_parenting = True if prop_type == "EMITTER" else False
         new_studio_asset.position = np.array([0.0, 0.814, 0.0], dtype=np.float64)
 
+        # Check if asset is an emitter to bind tracking entities safely
+        new_studio_asset.is_emitting = bool(asset_profile.get("is_emitting", True))
         if new_studio_asset.is_emitting:
             new_studio_emitter = MH2LiveEmitterProp(self.glob, new_studio_asset.prop_id, asset_profile)
+            # 🟢 PUSH THE MODE DOWN: Guarantee the sub-emitter inherits your textured sprite flags!
+            new_studio_emitter.emitter_mode = new_studio_asset.emitter_mode
+            new_studio_emitter.particle_draw_size = new_studio_asset.particle_draw_size
             new_studio_asset.emitter = new_studio_emitter
+
 
         pm = PropMesh(self.glob)
         res, err = pm.load(full_obj_path)

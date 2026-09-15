@@ -87,25 +87,34 @@ class PrimitiveParticleEngine:
             self.emitter_pools[prop_id] = [p for p in self.emitter_pools[prop_id] if p["age"] < p["life"]]
 
     def extract_flat_vertex_array(self, prop_id):
-        """Flattens structured dictionaries into sequential coordinates for OpenGL inputs."""
-        # Unify the target string layout case-insensitively
-        clean_key = str(prop_id).replace("prop_", "").strip().lower()
+        """
+        UNIVERSAL BRIDGE:
+        """
+        # Natively extract the clean active id string regardless of formatting labels
+        target_key = str(prop_id).replace("prop_", "").strip().lower()
         
-        pool = self.emitter_pools.get(clean_key, [])
+        pool = self.emitter_pools.get(target_key, None)
+        if pool is None:
+            # Universal loop tracks down your cubes, donuts, and wands automatically
+            for active_key, active_pool in self.emitter_pools.items():
+                if target_key in active_key.lower() or active_key.lower() in target_key:
+                    pool = active_pool
+                    break
+                    
+        if pool is None:
+            return []
+            
         flat_list = []
-        
         for p in pool:
             if isinstance(p, dict) and "pos" in p:
                 pos_vec = p["pos"]
                 try:
-                    x = float(pos_vec[0])
-                    y = float(pos_vec[1])
-                    z = float(pos_vec[2])
-                    flat_list.extend([x, y, z])
+                    flat_list.extend([float(pos_vec[0]), float(pos_vec[1]), float(pos_vec[2])])
                 except (IndexError, TypeError, ValueError):
                     flat_list.extend([0.0, 0.0, 0.0])
                     
         return flat_list
+
 
 
 live_particle_system = PrimitiveParticleEngine()
