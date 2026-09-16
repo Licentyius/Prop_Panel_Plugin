@@ -1,6 +1,6 @@
 ######
 #
-# Emitter Prop object type V1.3a Elvaerwyn_MH2 2026
+# Emitter Prop object type V1.4 Elvaerwyn_MH2 2026
 # For use in the prop panel plugin for Makehuman 2
 #
 ######
@@ -18,8 +18,10 @@ from opengl.texture import MH_Texture
 class MH2LiveEmitterProp:
     def __init__(self, glob, prop_id, raw_json_data):
         self.glob = glob        
-        self.prop_id = prop_id
+
+        self.prop_id = str(prop_id).strip().lower()
         self.light = self.glob.openGLWindow.light
+        
         if raw_json_data is None:
             raw_json_data = {}
             
@@ -73,13 +75,25 @@ class MH2LiveEmitterProp:
         return self.texture
 
     def drawMesh(self, proj_view_matrix, campos):
+        """Unified mesh instances position loop handles both dictionary formats and raw NumPy arrays safely."""
         for p in self.particles_pool:
-            self.render.setPosition(QVector3D(p.x, p.y, p.z))
-            self.render.setScale(QVector3D(p.scale[0], p.scale[1], p.scale[2]))
-            self.render.setXRotation(p.rotation[0])
-            self.render.setYRotation(p.rotation[1])
-            self.render.setZRotation(p.rotation[2])
-            self.render.draw(proj_view_matrix, campos, self.light, False)
+            try:
+                # Extract scalars safely from objects OR arrays
+                if hasattr(p, 'x') and not isinstance(p, (np.ndarray, list, tuple)):
+                    px, py, pz = float(p.x), float(p.y), float(p.z)
+                elif hasattr(p, '__getitem__') or isinstance(p, (np.ndarray, list, tuple)):
+                    px, py, pz = float(p[0]), float(p[1]), float(p[2])
+                else:
+                    continue
+                
+                self.render.setPosition(QVector3D(px, py, pz))
+                self.render.setScale(QVector3D(float(p.scale[0]), float(p.scale[1]), float(p.scale[2])))
+                self.render.setXRotation(p.rotation[0])
+                self.render.setYRotation(p.rotation[1])
+                self.render.setZRotation(p.rotation[2])
+                self.render.draw(proj_view_matrix, campos, self.light, False)
+            except Exception:
+                pass # Fail silently on corrupted frames to protect the timeline execution pulse
 
     def newParticles(self, cnt):
         for _ in range(cnt):
@@ -91,7 +105,6 @@ class MH2LiveEmitterProp:
     def poolCopy(self):
         """
         Extract individual scalar elements by index explicitly!
-        This should repair the float conversion collapse and streams the coordinates safely.
         """
         flat_list = []
         for part in self.particles_pool:
@@ -103,7 +116,7 @@ class MH2LiveEmitterProp:
                 
                 flat_list.extend([px, py, pz])
             except Exception:
-                # Direct scalar fallback if your vectors are single floats
+                # Direct scalar fallback if the vectors are single floats
                 flat_list.extend([float(part.x), float(part.y), float(part.z)])
             
         # Convert the continuous 1D sequence safely into the contiguous array structure
@@ -177,7 +190,7 @@ class MH2LiveEmitterProp:
         try:
             self.startOpenGL()
             gl.glEnable(gl.GL_BLEND)
-            gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE) # Immersive additive alpha fire blending
+            gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE) # Immersive additive alpha blending
             gl.glEnable(gl.GL_POINT_SPRITE)
             gl.glTexEnvi(gl.GL_POINT_SPRITE, gl.GL_COORD_REPLACE, gl.GL_TRUE)
             gl.glEnable(gl.GL_TEXTURE_2D)
@@ -205,41 +218,59 @@ class MH2LiveEmitterProp:
 
     def drawBillboards(self, campos):
         """MODE 5: True 3D Oriented Camera-Facing Billboard Quads Passes."""
-        self.startOpenGL()
-        gl.glEnable(gl.GL_BLEND)
-        gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE)
-        gl.glEnable(gl.GL_TEXTURE_2D)
-        if self.texture and hasattr(self.texture, 'textureId'):
-            gl.glBindTexture(gl.GL_TEXTURE_2D, self.texture.textureId())
+        if not hasattr(self, 'particles_pool') or not self.particles_pool:
+            return
 
-        # Extract current model-view parameters to calculate orientation angles
-        modelview = gl.glGetFloatv(gl.GL_MODELVIEW_MATRIX)
-        right = [modelview[0], modelview[4], modelview[8]]
-        up = [modelview[1], modelview[5], modelview[9]]
+        try:
+            self.startOpenGL()
+            gl.glEnable(gl.GL_BLEND)
+            gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE)
+            gl.glEnable(gl.GL_TEXTURE_2D)
+            if self.texture and hasattr(self.texture, 'textureId'):
+                gl.glBindTexture(gl.GL_TEXTURE_2D, self.texture.textureId())
 
-        size = self.particle_draw_size * 0.01  # Safe scale ratio
-        
-        # Draw explicit quad elements instead of standard pixel points
-        gl.glBegin(gl.GL_QUADS)
-        for p in self.particles_pool:
-            gl.glColor4f(1.0, 1.0, 1.0, 1.0)
+            modelview = gl.glGetFloatv(gl.GL_MODELVIEW_MATRIX)
+            right = [modelview[0], modelview[4], modelview[8]]
+            up = [modelview[1], modelview[5], modelview[9]]
+
+            size = self.particle_draw_size * 0.01  
             
-            # Compute vertex corner shifts in local workspace coordinates
-            gl.glTexCoord2f(0.0, 0.0)
-            gl.glVertex3f(p.x - (right[0] + up[0]) * size, p.y - (right[1] + up[1]) * size, p.z - (right[2] + up[2]) * size)
-            gl.glTexCoord2f(1.0, 0.0)
-            gl.glVertex3f(p.x + (right[0] - up[0]) * size, p.y + (right[1] - up[1]) * size, p.z + (right[2] - up[2]) * size)
-            gl.glTexCoord2f(1.0, 1.0)
-            gl.glVertex3f(p.x + (right[0] + up[0]) * size, p.y + (right[1] + up[1]) * size, p.z + (right[2] + up[2]) * size)
-            gl.glTexCoord2f(0.0, 1.0)
-            gl.glVertex3f(p.x - (right[0] - up[0]) * size, p.y - (right[1] - up[1]) * size, p.z - (right[2] - up[2]) * size)
-        gl.glEnd()
-        self.finishOpenGL()
+            gl.glBegin(gl.GL_QUADS)
+            for p in self.particles_pool:
+                try:
+
+                    if hasattr(p, 'x') and not isinstance(p, (np.ndarray, list, tuple)):
+                        px, py, pz = float(p.x), float(p.y), float(p.z)
+                    elif isinstance(p, dict) and "pos" in p:
+                        v = p["pos"]
+                        px, py, pz = float(v[0]), float(v[1]), float(v[2])
+                    elif hasattr(p, '__getitem__') or isinstance(p, (np.ndarray, list, tuple)):
+                        px, py, pz = float(p[0]), float(p[1]), float(p[2])
+                    else:
+                        continue
+
+                    gl.glColor4f(1.0, 1.0, 1.0, 1.0)
+                    
+                    gl.glTexCoord2f(0.0, 0.0)
+                    gl.glVertex3f(px - (right[0] + up[0]) * size, py - (right[1] + up[1]) * size, pz - (right[2] + up[2]) * size)
+                    gl.glTexCoord2f(1.0, 0.0)
+                    gl.glVertex3f(px + (right[0] - up[0]) * size, py + (right[1] - up[1]) * size, pz + (right[2] - up[2]) * size)
+                    gl.glTexCoord2f(1.0, 1.0)
+                    gl.glVertex3f(px + (right[0] + up[0]) * size, py + (right[1] + up[1]) * size, pz + (right[2] + up[2]) * size)
+                    gl.glTexCoord2f(0.0, 1.0)
+                    gl.glVertex3f(px - (right[0] - up[0]) * size, py - (right[1] - up[1]) * size, pz - (right[2] - up[2]) * size)
+                except Exception:
+                    pass
+            gl.glEnd()
+        except Exception as e:
+            print(f"[Prop Studio Debug] Billboard render cycle failed: {e}")
+        finally:
+            self.finishOpenGL()
 
 class MH2PropParticle:
     """A single particle element spawned by an emitter prop module."""
     def __init__(self, emitter):
-        # 1. Your working skeletal tracking bone joint center offsets
+        # 1. Skeletal tracking bone joint center offsets
         base_x = float(emitter.world_position[0]) if hasattr(emitter.world_position, '__getitem__') else float(emitter.world_position)
         base_y = float(emitter.world_position[1]) if hasattr(emitter.world_position, '__getitem__') else float(emitter.world_position)
         base_z = float(emitter.world_position[2]) if hasattr(emitter.world_position, '__getitem__') else float(emitter.world_position)
@@ -272,7 +303,7 @@ class MH2PropParticle:
         else:
             self.color = [1.0, 0.4, 0.0, 1.0]
         
-        # High-velocity trajectories to shoot them upward into viewport space
+        # High-velocity trajectories to shoot them into viewport space
         self.vx = random.uniform(-0.5, 0.5)
         self.vy = random.uniform(4.5, 9.0)  
         self.vz = random.uniform(-0.5, 0.5)
@@ -292,9 +323,9 @@ class MH2PropParticle:
 
         self.lifetime += dt
         
-        # Advance your positions forward along their velocity vectors
+        # Advance positions forward along their velocity vectors
         self.x += self.vx * dt
-        self.y += self.vy * dt  # RELEASES THE FREEZE AND THROWS THEM UPWARD!
+        self.y += self.vy * dt  
         self.z += self.vz * dt
         
         # Apply stable down-axis gravity drag over time frames

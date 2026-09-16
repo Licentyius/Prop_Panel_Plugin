@@ -1,7 +1,7 @@
 ######
 #
-# Prop Renderer V1.5 (Unified Build - Clean Patch) Elvaerwyn_MH2 2026
-# Fixes path truncation and quad mapping for pristine GIMP alpha textures
+# Prop Renderer V1.6 (Restored Build)
+# Part of the MakeHuman 2 Project contributed by Elvaerwyn_MH2 2026
 #
 ######
 
@@ -21,13 +21,11 @@ def inject_particle_gl_draw_pass(glob, custom_props_list):
     binding true alpha quads instead of raw un-masked point squares.
     """
     def internal_load_texture(glob_reference, relative_image_path):
-        """Loads images directly relative to the active plugin workspace paths."""
         if not relative_image_path or relative_image_path == "PLAIN":
             return None
         if relative_image_path in TEXTURE_CACHE_REPOS:
             return TEXTURE_CACHE_REPOS[relative_image_path]
 
-        # Dynamic path compilation matches the local subdirectory routes cleanly
         current_script_dir = os.path.dirname(os.path.abspath(__file__))
         plugin_root_folder = os.path.abspath(os.path.join(current_script_dir, ".."))
         
@@ -42,40 +40,14 @@ def inject_particle_gl_draw_pass(glob, custom_props_list):
                 return None
 
         try:
-
-            from PySide6.QtGui import QImage
-            
-            raw_img = QImage(full_disk_route)
-            if raw_img.isNull():
-                return None
-                
-            # Convert any optimized PNG formats directly into 32-bit channels
-            rgba_img = raw_img.convertToFormat(QImage.Format.Format_RGBA8888)
-            width, height = rgba_img.width(), rgba_img.height()
-            pixel_bytes = rgba_img.bits().tobytes() if hasattr(rgba_img.bits(), 'tobytes') else rgba_img.bits()
-
-            # Generate a raw OpenGL texture slot handle natively
-            tex_id = gl.glGenTextures(1)
-            gl.glBindTexture(gl.GL_TEXTURE_2D, tex_id)
-
-            # Force standard image scaling parameters to unblock texturing calculations
-            gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR)
-            gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR)
-            
-            # Overrides GL_CLAMP constraints 
-            gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_S, gl.GL_REPEAT)
-            gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_T, gl.GL_REPEAT)
-
-            # Upload the raw RGBA pixel arrays directly to computer's graphics card
-            gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RGBA8, width, height, 0, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, pixel_bytes)
-            
-            gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
-            
-            TEXTURE_CACHE_REPOS[relative_image_path] = tex_id
-            return tex_id
-            
+            from opengl.texture import Texture
+            native_tex_layer = Texture(glob_reference.openGLWindow)
+            native_tex_layer.load(full_disk_route)
+            hardware_id = native_tex_layer.id
+            TEXTURE_CACHE_REPOS[relative_image_path] = hardware_id
+            return hardware_id
         except Exception as tex_err:
-            print(f"[Prop Studio Texture Error] Alternate color pipeline failed: {tex_err}")
+            print(f"[Prop Studio Texture Error] Framework collapsed: {tex_err}")
             return None
 
     if not hasattr(glob, '_last_physics_frame_stamp'):
@@ -110,7 +82,10 @@ def inject_particle_gl_draw_pass(glob, custom_props_list):
                     vertices = []
 
         if not vertices:
-            prop_id = getattr(prop, 'name', None)
+            prop_id = getattr(prop, 'prop_id', getattr(prop, 'name', None))
+            if prop_id:
+                prop_id = str(prop_id).replace("prop_", "").strip().lower() 
+
             if prop_id and prop_id in live_particle_system.emitter_pools:
                 pool_data = live_particle_system.emitter_pools[prop_id]
                 for p in pool_data:
@@ -139,20 +114,14 @@ def inject_particle_gl_draw_pass(glob, custom_props_list):
 
         size = float(getattr(prop, 'particle_draw_size', 6.0))
 
-        # ================================================
-        # OPENGL BLIT VECTOR DRAW PASS (MODES 1, 2, & 3)
-        # ================================================
         gl.glPushMatrix()
         gl.glPushAttrib(gl.GL_POINT_BIT | gl.GL_CURRENT_BIT | gl.GL_ENABLE_BIT | gl.GL_TEXTURE_BIT)
         gl.glDisable(gl.GL_LIGHTING)
-        
-        # THE SHADER UNLINK 
-        gl.glUseProgram(0)
+        gl.glUseProgram(0) # Temporarily bypass active master PBR shaders completely
 
         if hasattr(prop, 'runtime_gl_matrix') and prop.runtime_gl_matrix is not None:
             gl.glEnable(gl.GL_NORMALIZE)
             gl.glMultMatrixf(prop.runtime_gl_matrix)
-
 
         # MODE 3: SMOOTH ALPHA RENDER PASS
         if mode == "TEXTURED_SPRITES":
@@ -161,11 +130,18 @@ def inject_particle_gl_draw_pass(glob, custom_props_list):
             
             if active_tex_id is not None:
                 gl.glEnable(gl.GL_BLEND)
-                gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE)
+        
+                # 🚀 UNIVERALLY ACCEPTS BOTH GLOWING ADDITIVE AND SMOOTH ALPHA TRANSPARENCIES:
+                gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
+        
+                gl.glEnable(gl.GL_POINT_SPRITE)
+                gl.glTexEnvi(gl.GL_POINT_SPRITE, gl.GL_COORD_REPLACE, gl.GL_TRUE)
                 gl.glDisable(gl.GL_DEPTH_TEST)
                 gl.glDepthMask(gl.GL_FALSE)
                 gl.glEnable(gl.GL_TEXTURE_2D)
                 gl.glBindTexture(gl.GL_TEXTURE_2D, active_tex_id)
+
+                gl.glTexEnvi(gl.GL_TEXTURE_ENV, gl.GL_TEXTURE_ENV_MODE, gl.GL_MODULATE)
                 
                 quad_size = (size if size > 0.0 else 48.0) * 0.001
                 
