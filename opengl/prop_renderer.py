@@ -1,6 +1,6 @@
 ######
 #
-# Prop Renderer V1.6 (Restored Build)
+# Prop Renderer V1.6a (Restored Build)
 # Part of the MakeHuman 2 Project contributed by Elvaerwyn_MH2 2026
 #
 ######
@@ -145,6 +145,7 @@ def inject_particle_gl_draw_pass(glob, custom_props_list):
                 
                 quad_size = (size if size > 0.0 else 48.0) * 0.001
                 
+                # 🟢 BLIT INDIVIDUAL ALPHA TEXTURE QUADS DIRECTLY 
                 gl.glBegin(gl.GL_QUADS)
                 for idx in range(0, len(vertices), 3):
                     gl.glColor4f(r, g, b, a)
@@ -156,11 +157,19 @@ def inject_particle_gl_draw_pass(glob, custom_props_list):
                     gl.glTexCoord2f(0.0, 1.0); gl.glVertex3f(px - quad_size, py + quad_size, pz)
                 gl.glEnd()
                 
+                # =====================================================================
+                # Safely clear the active program and texture bindings BEFORE restoring 
+                # depth states to prevent drivers from locking into black screens!
+                # =====================================================================
+                gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
+                gl.glUseProgram(0)
+                
                 gl.glEnable(gl.GL_DEPTH_TEST)
                 gl.glDepthMask(gl.GL_TRUE)
                 gl.glPopAttrib()
                 gl.glPopMatrix()
                 continue
+
             else:
                 mode = "PARTICLES"
 
