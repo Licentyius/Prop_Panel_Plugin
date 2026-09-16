@@ -181,6 +181,10 @@ class MultiPropManager():
 
                 # Route draw commands directly to the core emitter methods cleanly
                 if prop_data.emitter and getattr(prop_data, 'is_emitting', True):
+                    # 🟢 Dynamically execute pre-draw hardware checks if your files define them
+                    if hasattr(prop_data.emitter, 'startOpenGL'):
+                        prop_data.emitter.startOpenGL()
+
                     emode = prop_data.emitter.emitter_mode
                     if emode == "PHYSICAL_MESH":
                         prop_data.emitter.drawMesh(proj_view_matrix, campos)
@@ -193,10 +197,18 @@ class MultiPropManager():
                     elif emode == "BILLBOARD":
                         prop_data.emitter.drawBillboards(campos)
 
+                    # 🟢 Clear point sprite parameters inside your clean-up loops cleanly
+                    if hasattr(prop_data.emitter, 'finishOpenGL'):
+                        prop_data.emitter.finishOpenGL()
 
-                # Reset state registers at the end of each object slice cycle pass
+                # =====================================================================
+                # Safely unbind the texture layer and clear active shader programs 
+                # BEFORE resetting depth testing flags to stop the black screen loops!
+                # =====================================================================
                 gl.glActiveTexture(gl.GL_TEXTURE0)
                 gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
+                gl.glUseProgram(0)                     # Clean context register states
+                
                 gl.glEnable(gl.GL_DEPTH_TEST)
                 gl.glDepthMask(gl.GL_TRUE)
                 gl.glDisable(gl.GL_BLEND)
@@ -212,10 +224,9 @@ class MultiPropManager():
                 if bc and hasattr(bc, 'scene') and bc.scene and hasattr(bc.scene, 'floorsize'):
                     f_size = bc.scene.floorsize
                     if isinstance(f_size, (list, tuple, np.ndarray)) and len(f_size) >= 3:
-                        room_w, room_l = float(f_size[0]), float(f_size[2])
-                
-
-                room_l = float(f_size[2])
+                        room_w = float(f_size[0])
+                        room_l = float(f_size[2]) # 🟢 FIXED: Kept safely inside the validation block scope!
+                        
                 floor_matrix.scale(float(room_w), 1.0, float(room_l))
                 floor_render_obj.draw(proj_view_matrix * floor_matrix, campos, light_obj, False)
                 gl.glActiveTexture(gl.GL_TEXTURE0)
@@ -223,4 +234,5 @@ class MultiPropManager():
 
         self.setShader()
         gl.glUseProgram(0)
+
 
