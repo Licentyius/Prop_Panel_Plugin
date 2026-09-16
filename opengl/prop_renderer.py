@@ -1,7 +1,7 @@
 ######
 #
-# Prop Renderer  V1.3 by Elvaerwyn MH_2 2026
-# For use in the prop panel plugin for Makehuman 2
+# Prop Renderer V1.6 (Restored Build)
+# Part of the MakeHuman 2 Project contributed by Elvaerwyn_MH2 2026
 #
 ######
 
@@ -17,8 +17,8 @@ TEXTURE_CACHE_REPOS = {}
 
 def inject_particle_gl_draw_pass(glob, custom_props_list):
     """
-    Renders particle streams dynamically based on 4 architectural modes:
-    PARTICLES, SPRITES, TEXTURED_SPRITES, and PHYSICAL_MESH while respecting controls.
+    Renders particle streams dynamically across active memory buffers,
+    binding true alpha quads instead of raw un-masked point squares.
     """
     def internal_load_texture(glob_reference, relative_image_path):
         if not relative_image_path or relative_image_path == "PLAIN":
@@ -26,9 +26,18 @@ def inject_particle_gl_draw_pass(glob, custom_props_list):
         if relative_image_path in TEXTURE_CACHE_REPOS:
             return TEXTURE_CACHE_REPOS[relative_image_path]
 
-        full_disk_route = os.path.normpath(os.path.join(glob_reference.env.path_sysdata, "mh2_official_tools", relative_image_path)).replace("\\", "/")
+        current_script_dir = os.path.dirname(os.path.abspath(__file__))
+        plugin_root_folder = os.path.abspath(os.path.join(current_script_dir, ".."))
+        
+        clean_relative_path = relative_image_path.split("prop_panel/")[-1] if "prop_panel/" in relative_image_path else relative_image_path
+        full_disk_route = os.path.normpath(os.path.join(plugin_root_folder, clean_relative_path)).replace("\\", "/")
+
         if not os.path.isfile(full_disk_route):
-            return None
+            fallback_route = os.path.normpath(os.path.join(plugin_root_folder, "data", "props", os.path.basename(relative_image_path))).replace("\\", "/")
+            if os.path.isfile(fallback_route):
+                full_disk_route = fallback_route
+            else:
+                return None
 
         try:
             from opengl.texture import Texture
@@ -41,7 +50,6 @@ def inject_particle_gl_draw_pass(glob, custom_props_list):
             print(f"[Prop Studio Texture Error] Framework collapsed: {tex_err}")
             return None
 
-    # Step the underlying physics calculation engine uniformly once per frame call
     if not hasattr(glob, '_last_physics_frame_stamp'):
         glob._last_physics_frame_stamp = 0.0
     
@@ -56,34 +64,41 @@ def inject_particle_gl_draw_pass(glob, custom_props_list):
         if str(obj_type).upper() != 'EMITTER':
             continue
 
-        # RESTORED ACTION GATE: Instantly skip drawing if user toggles emission off (Fixes Play/Pause)
         if not getattr(prop, 'is_emitting', True):
             continue
 
-        prop_id = getattr(prop, 'name', None)
-        vertices = []
-        
-        # Pull active coordinate vectors out of the simulation pools
-        if prop_id and prop_id in live_particle_system.emitter_pools:
-            pool_data = live_particle_system.emitter_pools[prop_id]
-            for p in pool_data:
-                if isinstance(p, dict) and "pos" in p:
-                    v = p["pos"]
-                    vertices.extend([float(v[0]), float(v[1]), float(v[2])])
-                elif isinstance(p, dict) and "coord" in p:
-                    v = p["coord"]
-                    vertices.extend([float(v[0]), float(v[1]), float(v[2])])
+        mode = getattr(prop, 'emitter_mode', 'PARTICLES').upper().strip()
+        if prop.emitter and mode == "PHYSICAL_MESH":
+            continue
 
-        if not vertices and hasattr(prop, 'particles_pool') and prop.particles_pool:
-            for p in prop.particles_pool:
-                vertices.extend([float(getattr(p, 'x', 0.0)), float(getattr(p, 'y', 0.0)), float(getattr(p, 'z', 0.0))])
+        vertices = []
+
+        if hasattr(prop, 'emitter') and prop.emitter and hasattr(prop.emitter, 'particles'):
+            emitter_data = prop.emitter.particles
+            if emitter_data is not None and len(emitter_data) > 0:
+                try:
+                    vertices = [float(x) for x in emitter_data]
+                except Exception:
+                    vertices = []
+
+        if not vertices:
+            prop_id = getattr(prop, 'prop_id', getattr(prop, 'name', None))
+            if prop_id:
+                prop_id = str(prop_id).replace("prop_", "").strip().lower() 
+
+            if prop_id and prop_id in live_particle_system.emitter_pools:
+                pool_data = live_particle_system.emitter_pools[prop_id]
+                for p in pool_data:
+                    if isinstance(p, dict) and "pos" in p:
+                        v = p["pos"]
+                        if len(v) >= 3: vertices.extend([float(v[0]), float(v[1]), float(v[2])])
+                    elif isinstance(p, dict) and "coord" in p:
+                        v = p["coord"]
+                        if len(v) >= 3: vertices.extend([float(v[0]), float(v[1]), float(v[2])])
 
         if not vertices:
             continue
 
-        vertex_data = np.array(vertices, dtype=np.float32)
-
-        # Dynamic parameter extraction checks priority chains to eliminate white dots exceptions
         color_data = None
         for attr in ['particle_color', 'color_rgba']:
             val = getattr(prop, attr, None)
@@ -95,65 +110,61 @@ def inject_particle_gl_draw_pass(glob, custom_props_list):
             r, g, b = float(color_data[0]), float(color_data[1]), float(color_data[2])
             a = float(color_data[3]) if len(color_data) >= 4 else 1.0
         else:
-            r, g, b, a = 1.0, 0.4, 0.0, 1.0 # Safe programmatic orange baseline variable
+            r, g, b, a = 1.0, 0.4, 0.0, 1.0
 
-        # Fetch mode flags from your schema maps
-        mode = getattr(prop, 'emitter_mode', 'PARTICLES').upper().strip()
         size = float(getattr(prop, 'particle_draw_size', 6.0))
 
-        # =====================================================================
-        # MODE 4: PHYSICAL OBJECT MESH INSTANCING COPIES (.obj spawns)
-        # =====================================================================
-        if mode == "PHYSICAL_MESH" and hasattr(prop, 'mesh_reference') and prop.mesh_reference:
-            render_pipeline = getattr(glob, 'prop_manager_pipeline', None)
-            if render_pipeline:
-                active_shader = getattr(render_pipeline, 'pbr', getattr(render_pipeline, 'phong', None))
-                if active_shader and render_pipeline.shaders:
-                    render_pipeline.shaders.bindShader(active_shader)
-                    loc_mvp = gl.glGetUniformLocation(active_shader.program, "meshMVP")
-                    viewport = getattr(glob, 'openGLWindow', None)
-                    
-                    if viewport and loc_mvp != -1:
-                        proj_view = viewport.getProjViewMatrix()
-                        for i in range(0, len(vertices), 3):
-                            inst_m = QMatrix4x4()
-                            inst_m.translate(vertices[i], vertices[i+1], vertices[i+2])
-                            inst_m.scale(0.1, 0.1, 0.1) # Scale multiplier for small physical copies
-                            
-                            computed_mvp = proj_view * inst_m
-                            gl.glUniformMatrix4fv(loc_mvp, 1, gl.GL_FALSE, computed_mvp.data())
-                            prop.mesh_reference.render.draw(computed_mvp, viewport.campos, viewport.light, False)
-            continue
-
-        # =====================================================================
-        # OPENGL BLIT VECTOR DRAW PASS (MODES 1, 2, & 3)
-        # =====================================================================
         gl.glPushMatrix()
         gl.glPushAttrib(gl.GL_POINT_BIT | gl.GL_CURRENT_BIT | gl.GL_ENABLE_BIT | gl.GL_TEXTURE_BIT)
         gl.glDisable(gl.GL_LIGHTING)
+        gl.glUseProgram(0) # Temporarily bypass active master PBR shaders completely
 
         if hasattr(prop, 'runtime_gl_matrix') and prop.runtime_gl_matrix is not None:
             gl.glEnable(gl.GL_NORMALIZE)
             gl.glMultMatrixf(prop.runtime_gl_matrix)
 
-        # MODE 3: TEXTURED IMAGE-BASED BILLBOARDS (flame.png or water.png)
+        # MODE 3: SMOOTH ALPHA RENDER PASS
         if mode == "TEXTURED_SPRITES":
             tex_file = getattr(prop, 'particle_texture', 'PLAIN')
             active_tex_id = internal_load_texture(glob, tex_file) if tex_file != "PLAIN" else None
             
             if active_tex_id is not None:
                 gl.glEnable(gl.GL_BLEND)
-                gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE) # Realistic additive blending
+        
+                # 🚀 UNIVERALLY ACCEPTS BOTH GLOWING ADDITIVE AND SMOOTH ALPHA TRANSPARENCIES:
+                gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
+        
                 gl.glEnable(gl.GL_POINT_SPRITE)
                 gl.glTexEnvi(gl.GL_POINT_SPRITE, gl.GL_COORD_REPLACE, gl.GL_TRUE)
+                gl.glDisable(gl.GL_DEPTH_TEST)
+                gl.glDepthMask(gl.GL_FALSE)
                 gl.glEnable(gl.GL_TEXTURE_2D)
                 gl.glBindTexture(gl.GL_TEXTURE_2D, active_tex_id)
-                gl.glPointSize(size if size > 6.0 else 48.0)
-                gl.glColor4f(1.0, 1.0, 1.0, 1.0)
-            else:
-                mode = "PARTICLES" # Drop back safely if file is missing
 
-        # MODE 2: UNMASKED FLAT CARD SPRITES
+                gl.glTexEnvi(gl.GL_TEXTURE_ENV, gl.GL_TEXTURE_ENV_MODE, gl.GL_MODULATE)
+                
+                quad_size = (size if size > 0.0 else 48.0) * 0.001
+                
+                gl.glBegin(gl.GL_QUADS)
+                for idx in range(0, len(vertices), 3):
+                    gl.glColor4f(r, g, b, a)
+                    px, py, pz = vertices[idx], vertices[idx+1], vertices[idx+2]
+                    
+                    gl.glTexCoord2f(0.0, 0.0); gl.glVertex3f(px - quad_size, py - quad_size, pz)
+                    gl.glTexCoord2f(1.0, 0.0); gl.glVertex3f(px + quad_size, py - quad_size, pz)
+                    gl.glTexCoord2f(1.0, 1.0); gl.glVertex3f(px + quad_size, py + quad_size, pz)
+                    gl.glTexCoord2f(0.0, 1.0); gl.glVertex3f(px - quad_size, py + quad_size, pz)
+                gl.glEnd()
+                
+                gl.glEnable(gl.GL_DEPTH_TEST)
+                gl.glDepthMask(gl.GL_TRUE)
+                gl.glPopAttrib()
+                gl.glPopMatrix()
+                continue
+            else:
+                mode = "PARTICLES"
+
+        # MODE 2: FLAT SOLID SPRITES
         if mode == "SPRITES":
             gl.glEnable(gl.GL_BLEND)
             gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
@@ -163,7 +174,7 @@ def inject_particle_gl_draw_pass(glob, custom_props_list):
             gl.glPointSize(size if size > 6.0 else 16.0)
             gl.glColor4f(r, g, b, a)
 
-        # MODE 1: PURE DUST PARTICLES ONLY
+        # MODE 1: PURE DUST
         if mode == "PARTICLES":
             gl.glDisable(gl.GL_TEXTURE_2D)
             gl.glDisable(gl.GL_POINT_SPRITE)
@@ -172,6 +183,7 @@ def inject_particle_gl_draw_pass(glob, custom_props_list):
             gl.glPointSize(size)
             gl.glColor4f(r, g, b, a)
 
+        vertex_data = np.array(vertices, dtype=np.float32)
         gl.glEnableClientState(gl.GL_VERTEX_ARRAY)
         gl.glVertexPointer(3, gl.GL_FLOAT, 0, vertex_data)
         gl.glDrawArrays(gl.GL_POINTS, 0, len(vertex_data) // 3)

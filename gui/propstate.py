@@ -51,27 +51,36 @@ class StateEquipping(PropState):
             prop.local_offset_pos = [0.0, 0.0, 0.0]
             
             if base_class and getattr(base_class, 'pose_skeleton', None):
-                skel = base_class.pose_skeleton
-                if "hand_R" in skel.bones:
-                    bone = skel.bones["hand_R"]
-                    raw_bone_pos = getattr(bone, 'poseheadPos', getattr(bone, 'headPos', [0.0, 0.0, 0.0]))
+
+                coord, bone = base_class.getVirtualBonePosition("hand_R")
+                if bone is not None:
+                    bone_pos = [float(coord[0]), float(coord[1]), float(coord[2])]
+                else:
+                    bone_pos = [0.0, 0.0, 0.0]
                     
-                    # Convert to primitive float array index listings to block TypeErrors
-                    if hasattr(raw_bone_pos, 'x') and callable(getattr(raw_bone_pos, 'x')):
-                        bone_pos = [float(raw_bone_pos.x()), float(raw_bone_pos.y()), float(raw_bone_pos.z())]
-                    elif len(raw_bone_pos) >= 3:
-                        bone_pos = [float(raw_bone_pos[0]), float(raw_bone_pos[1]), float(raw_bone_pos[2])]
-                    else:
-                        bone_pos = [0.0, 0.0, 0.0]
-                    
-                    prop.local_offset_pos = [
-                        prop.position[0] - bone_pos[0],
-                        prop.position[1] - bone_pos[1],
-                        prop.position[2] - bone_pos[2]
-                    ]
+                # Safe flat-list parsing conversion prevents array indexing type mismatches
+                p_pos = getattr(prop, 'position', [0.0, 0.0, 0.0])
+                try:
+                    p_list = p_pos.tolist() if hasattr(p_pos, 'tolist') else list(p_pos)
+                except Exception:
+                    p_list = [0.0, 0.0, 0.0]
+                
+                # Zero pad dynamically if fields arrive truncated from files
+                while len(p_list) < 3:
+                    p_list.append(0.0)
+
+                prop.local_offset_pos = [
+                    float(p_list[0]) - bone_pos[0],
+                    float(p_list[1]) - bone_pos[1],
+                    float(p_list[2]) - bone_pos[2]
+                ]
             
             if prop.local_offset_pos == [0.0, 0.0, 0.0]:
-                prop.local_offset_pos = getattr(prop, 'position', [0.0, 0.0, 0.0])
+                p_raw = getattr(prop, 'position', [0.0, 0.0, 0.0])
+                try:
+                    prop.local_offset_pos = p_raw.tolist() if hasattr(p_raw, 'tolist') else list(p_raw)
+                except Exception:
+                    prop.local_offset_pos = [0.0, 0.0, 0.0]
 
             self.machine.frame_counter = 0
 

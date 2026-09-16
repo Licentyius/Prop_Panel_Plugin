@@ -1,5 +1,5 @@
 """
-Prop Module v2.1 (Unified Master Edition).
+Prop Module v2.3 (Unified Edition V1).
 Part of the MakeHuman 2 Project contributed by Elvaerwyn_MH2 2026.
 """
 
@@ -34,9 +34,9 @@ _plugin_root = os.path.abspath(os.path.join(_current_dir, ".."))
 if _plugin_root not in sys.path:
     sys.path.insert(0, _plugin_root)
 
-from ..opengl.prop_manager import MultiPropManager
-from ..core.particle_engine import live_particle_system
-from ..core.emitter_prop import MH2PropParticle, MH2LiveEmitterProp
+from mh2_official_tools.prop_panel.opengl.prop_manager import MultiPropManager
+from mh2_official_tools.prop_panel.core.particle_engine import live_particle_system
+from mh2_official_tools.prop_panel.core.emitter_prop import MH2PropParticle, MH2LiveEmitterProp
 import random
 import time
 
@@ -261,23 +261,6 @@ class PropManLeftPanel(QWidget):
         self.controls_group.setLayout(self.form)
         master_panel_flow.addWidget(self.controls_group)
 
-        self.emitter_context_group = MHGroupBox("Dynamic Emitter Modifiers")
-        context_layout = QVBoxLayout()
-
-        self.ghost_mode_cb = QCheckBox("Hide Prop Mesh (Pure Ghost Emitter Only)")
-        self.ghost_mode_cb.toggled.connect(self.on_ghost_toggled)
-        context_layout.addWidget(self.ghost_mode_cb)
-
-
-        self.active_emit_cb = QCheckBox("Enable Active Particle Emission Loop")
-        self.active_emit_cb.setChecked(True)
-        context_layout.addWidget(self.active_emit_cb)
-
-        self.emitter_context_group.setLayout(context_layout)
-        master_panel_flow.addWidget(self.emitter_context_group)
-        
-        self.emitter_context_group.setVisible(True) 
-
         self.inventory_table = QTableWidget()
         self.inventory_table.setColumnCount(3)
         self.inventory_table.setHorizontalHeaderLabels(["Name", "Status", "Action"])
@@ -337,7 +320,6 @@ class PropManLeftPanel(QWidget):
         
         self.live_fx_modifiers_group.setVisible(True)
 
-
         master_panel_flow.addWidget(QLabel("<b>2D Room Boundary Planner Map:</b>"))
         self.room_boundary_map_widget = MHRoomLayoutMap(parent=parent, is_boundary_planner=True) 
         self.room_boundary_map_widget.glob = self.glob
@@ -369,38 +351,12 @@ class PropManLeftPanel(QWidget):
         self.scl_y.valueChanged.connect(self.syncToObject)
         self.scl_z.valueChanged.connect(self.syncToObject)
 
-        self.emitter_context_group = MHGroupBox("Dynamic Emitter Modifiers")
-        context_layout = QVBoxLayout()
-
-        self.ghost_mode_cb = QCheckBox("Hide Prop Mesh (Pure Ghost Emitter Only)")
-        self.ghost_mode_cb.toggled.connect(self.on_ghost_toggled)
-        context_layout.addWidget(self.ghost_mode_cb)
-
-        self.active_emit_cb = QCheckBox("Enable Active Particle Emission Loop")
-        self.active_emit_cb.setChecked(True)
-
-        self.active_emit_cb.toggled.connect(self.on_emission_loop_toggled)
-        context_layout.addWidget(self.active_emit_cb)
-
-        self.emitter_context_group.setLayout(context_layout)
-        master_panel_flow.addWidget(self.emitter_context_group)
-        
-        self.emitter_context_group.setVisible(True)
-
-        self.inventory_table = QTableWidget()
-        self.inventory_table.setColumnCount(3)
-        self.inventory_table.setHorizontalHeaderLabels(["Name", "Status", "Action"])
-        header = self.inventory_table.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-
-        self.inventory_table.itemDoubleClicked.connect(self.on_inventory_row_clicked)
-        master_panel_flow.addWidget(self.inventory_table)
-
-        self.prop_list = QListWidget()
-        self.prop_list.setViewMode(QListWidget.ListMode)
-        self.prop_list.setMinimumHeight(120)  
-        self.prop_list.currentItemChanged.connect(self.select_prop)
-        master_panel_flow.addWidget(self.prop_list)
+        if hasattr(self, 'inventory_table') and self.inventory_table:
+            try:
+                self.inventory_table.itemDoubleClicked.disconnect()
+            except Exception:
+                pass
+            self.inventory_table.itemDoubleClicked.connect(self.on_inventory_row_clicked)
 
         QTimer.singleShot(10, self.refresh_inventory_list)
 
@@ -542,32 +498,36 @@ class PropManLeftPanel(QWidget):
         print(f"[Prop Studio Core] Deploying scene initialization for manifest key: {prop_id_key}")
         
         new_studio_asset = PropObject(prop_name, self.glob)
-        new_studio_asset.prop_id = str(prop_id_key)
+        # THE MASTER PLUG: Explicitly save the lowercase manifest key handle!
+        new_studio_asset.prop_id = str(prop_id_key).strip().lower()
+        new_studio_asset.name = prop_name
         new_studio_asset.path = full_obj_path
         new_studio_asset.object_type = prop_type
         new_studio_asset.type = prop_type
         
-        # Route config parameters straight out of the JSON map onto the live scene element
+        # Route manifest parameters straight out of the JSON text blocks
         new_studio_asset.is_mesh_visible = bool(asset_profile.get("is_mesh_visible", True))
         new_studio_asset.visible = new_studio_asset.is_mesh_visible
         
-        # FIXED: Map all 4 mode descriptor variables out of JSON onto the live engine asset properties
+        # Force the mode strings natively into the parent tracks
         new_studio_asset.emitter_mode = str(asset_profile.get("emitter_mode", "PARTICLES")).upper().strip()
         new_studio_asset.particle_texture = str(asset_profile.get("particle_texture", "PLAIN"))
-        new_studio_asset.particle_draw_size = float(asset_profile.get("particle_draw_size", 6.0))
-        
-        # Route fallback colors properly out of varying manifest naming iterations
-        new_studio_asset.particle_color = asset_profile.get("particle_color", asset_profile.get("color_rgba", [1.0, 0.4, 0.0, 1.0]))
+        new_studio_asset.particle_draw_size = float(asset_profile.get("particle_draw_size", 16.0))
+        new_studio_asset.particle_color = asset_profile.get("particle_color", asset_profile.get("color_rgba", [1.0, 1.0, 1.0, 1.0]))
         
         new_studio_asset.parent_bone = asset_profile.get("default_bone", asset_profile.get("parent_bone", "hand_R"))
         new_studio_asset.use_parenting = True if prop_type == "EMITTER" else False
         new_studio_asset.position = np.array([0.0, 0.814, 0.0], dtype=np.float64)
 
-        # Check if asset is an emitter to bind tracking entities
+        # Check if asset is an emitter to bind tracking entities safely
         new_studio_asset.is_emitting = bool(asset_profile.get("is_emitting", True))
         if new_studio_asset.is_emitting:
-            new_studio_emitter = MH2LiveEmitterProp(new_studio_asset.prop_id, asset_profile)
+            new_studio_emitter = MH2LiveEmitterProp(self.glob, new_studio_asset.prop_id, asset_profile)
+            # PUSH THE MODE DOWN: Guarantee the sub-emitter inherits the textured sprite flags!
+            new_studio_emitter.emitter_mode = new_studio_asset.emitter_mode
+            new_studio_emitter.particle_draw_size = new_studio_asset.particle_draw_size
             new_studio_asset.emitter = new_studio_emitter
+
 
         pm = PropMesh(self.glob)
         res, err = pm.load(full_obj_path)
@@ -589,53 +549,11 @@ class PropManLeftPanel(QWidget):
         if hasattr(self, 'propman') and self.propman:
             self.propman.global_pipeline_refresh()
             
-        return True
+        return True # The function exits cleanly *after* processing every single property!
 
-
-        # after a return this code is NOT reached ...
-
-        class MHStudioLivePropObject:
-            def __init__(self):
-
-                self.prop_id = str(prop_id_key) 
-                self.name = prop_name           
-                self.type = prop_type
-                self.object_type = prop_type
-                self.path = full_obj_path
-                self.material_path = ""
-                self.position = [0.0, 0.814, 0.0] 
-                self.rotation = [0.0, 0.0, 0.0]
-                self.scale = [1.0, 1.0, 1.0]
-                self.use_parenting = True if prop_type == "EMITTER" else False
-                self.parent_bone = asset_profile.get("default_bone", "hand_R") if prop_type == "EMITTER" else "None"
-                self.visible = True
-                self.is_mesh_visible = asset_profile.get("is_mesh_visible", True)
-                self.is_emitting = asset_profile.get("is_emitting", True)
-                self.max_particles = asset_profile.get("particle_count", 300)
-                self.particle_color = asset_profile.get("color_rgba", [1.0, 0.5, 0.0, 1.0])
-                self.mesh_reference = None
-
-        new_studio_asset = MHStudioLivePropObject()
-
-        viewport_view = getattr(self.glob, 'openGLWindow', None)
-        if viewport_view and hasattr(viewport_view, 'loadObjMesh'):
-            new_studio_asset.mesh_reference = viewport_view.loadObjMesh(full_obj_path)
-        elif hasattr(self, 'propman') and hasattr(self.propman, 'compile_mesh'):
-            new_studio_asset.mesh_reference = self.propman.compile_mesh(full_obj_path)
-
-        if not hasattr(self.glob, 'custom_props_list'):
-            self.glob.custom_props_list = []
-        self.glob.custom_props_list.append(new_studio_asset)
-        
-        print(f"[Prop Studio Core] Successfully loaded and registered manifest entry: '{prop_name}' ({prop_type})")
-        
-        if hasattr(self.glob, 'openGLWindow') and self.glob.openGLWindow:
-            self.glob.openGLWindow.Tweak()
-            if hasattr(self.glob.openGLWindow, 'update'):
-                self.glob.openGLWindow.update()
 
     def on_ghost_toggled(self, checked):
-        """Fires when clicking the ghost checkbox to update manifest states."""
+        """Fires when clicking the ghost checkbox to update manifest states and live scene meshes instantly."""
         global _standalone_studio_dock_instance
         if not _standalone_studio_dock_instance:
             return
@@ -644,23 +562,24 @@ class PropManLeftPanel(QWidget):
         loaded_manifest = _standalone_studio_dock_instance.property("manifest_data") or {}
 
         if active_id and active_id in loaded_manifest:
-            is_visible = not checked
-            loaded_manifest[active_id]["is_mesh_visible"] = is_visible
+            is_mesh_visible = not checked
+            loaded_manifest[active_id]["is_mesh_visible"] = is_mesh_visible
             
+            # =====================================================================
+            # 🛠️ LIVE SCENE COORD SYNC: Update the active running viewport object!
+            # =====================================================================
             custom_pool = getattr(self.glob, 'custom_props_list', [])
             for prop in custom_pool:
                 target_id = getattr(prop, 'prop_id', getattr(prop, 'name', ''))
-                if str(target_id).lower() == str(active_id).lower():
-                    prop.is_mesh_visible = is_visible
-                    prop.visible = is_visible
+                if str(target_id).lower() == str(active_id).lower() or str(getattr(prop, 'name', '')).lower() == str(active_id).lower():
+                    prop.is_mesh_visible = is_mesh_visible
+                    prop.visible = is_mesh_visible  
 
-            update_prop_json_entry(active_id, {"is_mesh_visible": is_visible})
+            update_prop_json_entry(active_id, {"is_mesh_visible": is_mesh_visible})
             print(f"[Prop Studio Context] Ghost option updated and saved for item: {active_id}")
 
             if hasattr(self.glob, 'openGLWindow') and self.glob.openGLWindow:
-                self.glob.openGLWindow.Tweak()
-                if hasattr(self.glob.openGLWindow, 'update'):
-                    self.glob.openGLWindow.update()
+                self.glob.openGLWindow.update()
 
     def on_emission_loop_toggled(self, checked):
         """Fires when clicking the emission checkbox to flip asset types in real-time."""
@@ -676,10 +595,11 @@ class PropManLeftPanel(QWidget):
             target_type = "EMITTER" if checked else "STATIC"
             loaded_manifest[active_id]["type"] = target_type
             
+            # Update live engine instance structures
             custom_pool = getattr(self.glob, 'custom_props_list', [])
             for prop in custom_pool:
                 target_id = getattr(prop, 'prop_id', getattr(prop, 'name', ''))
-                if str(target_id).lower() == str(active_id).lower():
+                if str(target_id).lower() == str(active_id).lower() or str(getattr(prop, 'name', '')).lower() == str(active_id).lower():
                     prop.type = target_type
                     prop.object_type = target_type
                     prop.is_emitting = checked
@@ -709,7 +629,10 @@ class PropManLeftPanel(QWidget):
     def select_prop(self, current, previous):
         """Monitors item row selections inside the layout to toggle emitter control panels."""
         if not current or not self.propman:
+
+         if hasattr(self, 'emitter_context_group') and self.emitter_context_group:
             self.emitter_context_group.setVisible(False)
+
             return
 
         raw_text = current.text()
@@ -753,6 +676,63 @@ class PropManLeftPanel(QWidget):
 
         if hasattr(self.glob, 'openGLWindow') and self.glob.openGLWindow:
             self.glob.openGLWindow.update()
+
+    def connect_emitter_context_signals(self):
+        """Wires up the hidden context group sliders and checkboxes to update system variables natively!"""
+        # Connect the checkboxes if they aren't already linked up
+        try:
+            self.ghost_mode_cb.stateChanged.connect(self.sync_ghost_mode_to_asset)
+            self.active_emit_cb.stateChanged.connect(self.sync_emission_to_asset)
+
+            if hasattr(self, 'density_spin'):
+                self.density_spin.valueChanged.connect(self.sync_density_to_asset)
+            if hasattr(self, 'size_spin'):
+                self.size_spin.valueChanged.connect(self.sync_size_to_asset)
+        except Exception:
+            pass # Fail safely if already connected
+
+    def sync_ghost_mode_to_asset(self, state):
+        """Hides the solid mesh (Ghost Mode) when checked without breaking the GIMP alpha animations!"""
+        # ghost_mode_cb is checked when we WANT ghost mode (meaning mesh visibility is FALSE)
+        is_ghost = (state == 2)
+        current_prop = self.propman.current_prop if hasattr(self.propman, 'current_prop') else None
+        if current_prop:
+            current_prop.is_mesh_visible = not is_ghost
+            current_prop.visible = not is_ghost
+            if hasattr(current_prop, 'emitter') and current_prop.emitter:
+                current_prop.emitter.is_mesh_visible = not is_ghost
+            if self.glob and getattr(self.glob, 'openGLWindow', None):
+                self.glob.openGLWindow.update()
+            print(f"[FX Sync] Ghost Mode Toggled. Mesh Visible: {not is_ghost}")
+
+    def sync_emission_to_asset(self, state):
+        """Wakes up or freezes the particle simulation clock vector loop dynamically on click."""
+        is_emitting = (state == 2)
+        current_prop = self.propman.current_prop if hasattr(self.propman, 'current_prop') else None
+        if current_prop:
+            current_prop.is_emitting = is_emitting
+            if hasattr(current_prop, 'emitter') and current_prop.emitter:
+                current_prop.emitter.is_emitting = is_emitting
+            print(f"[FX Sync] Active Particle Emission Loop: {is_emitting}")
+
+    def sync_density_to_asset(self, value):
+        """Dynamically scales particle constraints inside the active background buffers."""
+        current_prop = self.propman.current_prop if hasattr(self.propman, 'current_prop') else None
+        if current_prop:
+            count = int(value)
+            current_prop.max_particles = count
+            if hasattr(current_prop, 'emitter') and current_prop.emitter:
+                current_prop.emitter.max_particles = count
+
+    def sync_size_to_asset(self, value):
+        """Updates particle point draw size diameters in real-time inside the viewport canvas."""
+        current_prop = self.propman.current_prop if hasattr(self.propman, 'current_prop') else None
+        if current_prop:
+            current_prop.particle_draw_size = float(value)
+            if hasattr(current_prop, 'emitter') and current_prop.emitter:
+                current_prop.emitter.particle_draw_size = float(value)
+            if self.glob and getattr(self.glob, 'openGLWindow', None):
+                self.glob.openGLWindow.update()
 
     def leave(self):
         if hasattr(self, 'room_floor_mesh') and self.room_floor_mesh: 
@@ -917,16 +897,51 @@ class PropManLeftPanel(QWidget):
         self.syncToObject()
 
     def sync_density_to_active_prop(self, value):
-        """Live pushes slider adjustments straight to the particle memory buffers."""
-        if hasattr(self, 'current_prop') and self.current_prop:
-            self.current_prop.emitter.max_particles = int(value)
-            print(f"[FX Tuning] Stream density capped at: {int(value)} particles for {self.current_prop.name}")
+        """Live pushes left slider adjustments straight to the active right manager instance."""
+
+        active_manager = getattr(self, 'propman', None)
+        target_prop = getattr(active_manager, 'current_prop', None) if active_manager else None
+        
+        if target_prop:
+            count = int(value)
+
+            if hasattr(target_prop, 'emitter') and target_prop.emitter:
+                target_prop.emitter.max_particles = count
+            
+            target_prop.max_particles = count
+            
+            # Update the right panel's spinner graphics so they stay perfectly in sync
+            if hasattr(active_manager, 'density_spin') and active_manager.density_spin:
+                active_manager.density_spin.blockSignals(True)
+                active_manager.density_spin.setValue(float(count))
+                active_manager.density_spin.blockSignals(False)
+
+            active_id = getattr(target_prop, 'prop_id', getattr(target_prop, 'name', '')).strip().lower()
+            if active_id:
+                update_prop_json_entry(active_id, {"particle_count": count})
+                print(f"[FX Tuning] Stream density updated: {count} particles for {target_prop.name}")
 
     def sync_size_to_active_prop(self, value):
-        """Live maps pixel weights onto custom assets for the OpenGL draw pass to read."""
-        if hasattr(self, 'current_prop') and self.current_prop:
-            # Inject a dynamic size attribute directly onto the active prop object
-            self.current_prop.particle_draw_size = float(value)
+        """Live maps left slider point weights onto active engine structures natively."""
+        active_manager = getattr(self, 'propman', None)
+        target_prop = getattr(active_manager, 'current_prop', None) if active_manager else None
+        
+        if target_prop:
+            draw_size = float(value)
+            target_prop.particle_draw_size = draw_size
+            
+            if hasattr(target_prop, 'emitter') and target_prop.emitter:
+                target_prop.emitter.particle_draw_size = draw_size
+                
+            if hasattr(active_manager, 'size_spin') and active_manager.size_spin:
+                active_manager.size_spin.blockSignals(True)
+                active_manager.size_spin.setValue(draw_size)
+                active_manager.size_spin.blockSignals(False)
+
+            active_id = getattr(target_prop, 'prop_id', getattr(target_prop, 'name', '')).strip().lower()
+            if active_id:
+                update_prop_json_entry(active_id, {"particle_draw_size": draw_size})
+
             if self.glob and getattr(self.glob, 'openGLWindow', None):
                 self.glob.openGLWindow.update()
 
@@ -955,7 +970,11 @@ class PropManagerPanel(MHGroupBox):
         super().__init__("Prop Manager")
         self.parent = parent 
         self.glob = getattr(parent, 'glob', None)
+
+        self.central_widget = getattr(parent, 'central_widget', getattr(parent, 'centralWidget', self))
+        
         self.env = self.glob.env
+
         self.view = getattr(parent, 'graph', None).view if hasattr(parent, 'graph') else None
         self.current_prop = None 
         self.leftPanel = None
@@ -1039,13 +1058,51 @@ class PropManagerPanel(MHGroupBox):
         self.open_material_maker_btn.clicked.connect(self.launch_native_material_maker)
         
         material_studio_layout.addWidget(self.open_material_maker_btn)
+
         self.material_studio_group.setLayout(material_studio_layout)
         layout.addWidget(self.material_studio_group)
+
+        self.live_particle_tweaks_group = MHGroupBox("Live Particle Emitter Controls")
+        tweaks_layout = QVBoxLayout()
+
+        # 1. THE GHOST EMITTER BUTTON
+        self.ghost_emitter_btn = QPushButton("👻 Toggle Ghost Mode (Hide Solid Mesh)")
+        self.ghost_emitter_btn.setMinimumHeight(28)
+        self.ghost_emitter_btn.clicked.connect(self.toggle_ghost_mesh_mode)
+        tweaks_layout.addWidget(self.ghost_emitter_btn)
+
+        # 2. ENABLE ACTIVE PARTICLES CHECKBOX
+        self.active_emit_cb = QCheckBox("Enable Active Particle Emission Loop")
+        self.active_emit_cb.setChecked(True)
+        self.active_emit_cb.stateChanged.connect(self.toggle_particle_emission_state)
+        tweaks_layout.addWidget(self.active_emit_cb)
+
+        # 3. PARTICLE COUNT / DENSITY SLIDER (SPINBOX)
+        tweaks_layout.addWidget(QLabel("<b>Particle Density Limit / Count:</b>"))
+        self.density_spin = QDoubleSpinBox()
+        self.density_spin.setRange(1.0, 2000.0)
+        self.density_spin.setSingleStep(25.0)
+        self.density_spin.setDecimals(0)
+        self.density_spin.valueChanged.connect(self.update_live_particle_density)
+        tweaks_layout.addWidget(self.density_spin)
+
+        # 4. PARTICLE DRAW SIZE SLIDER (SPINBOX)
+        tweaks_layout.addWidget(QLabel("<b>Particle Point Draw Size:</b>"))
+        self.size_spin = QDoubleSpinBox()
+        self.size_spin.setRange(0.1, 500.0)
+        self.size_spin.setSingleStep(2.0)
+        self.size_spin.setDecimals(1)
+        self.size_spin.valueChanged.connect(self.update_live_particle_size)
+        tweaks_layout.addWidget(self.size_spin)
+
+        self.live_particle_tweaks_group.setLayout(tweaks_layout)
+        layout.addWidget(self.live_particle_tweaks_group)
 
         self.prop_fsm = PropStateMachine(panel_ref=self)
 
         self.state_heartbeat_clock = QTimer(self)
         self.state_heartbeat_clock.timeout.connect(self.execute_master_heartbeat_pulse)
+
         self.state_heartbeat_clock.start(33) # Accelerated to 33ms target (~30 FPS simulation delta)
 
         # =====================================================================
@@ -1071,59 +1128,88 @@ class PropManagerPanel(MHGroupBox):
         self.fx_playback_group.setLayout(fx_button_layout)
         layout.addWidget(self.fx_playback_group)
         
-        # Keep it visible so we can control playback globally
+        # Keep it visible to control playback globally
         self.fx_playback_group.setVisible(True)
 
     def execute_master_heartbeat_pulse(self):
         """Unified system heartbeat pumps FSM ticks and particle physics calculations."""
-        # TODO both functions are not yet working, correct location?
         # 1. Pump the state machine transition pipelines
         if hasattr(self, 'pump_state_machine_tick'):
-            self.pump_state_machine_tick()
+            try:
+                self.pump_state_machine_tick()
+            except Exception:
+                pass
             
-        # 2. Pump the live particle engine physics translations
-        self.calculate_live_particle_physics_tick()
+        # ======================
+        # 🛠️ THE TIMELINE PLUG: 
+        # ======================
+        try:
+            props_list = getattr(self.glob, 'custom_props_list', [])
+            if props_list:
+                from ..core.particle_engine import live_particle_system
+                
+                # Active tick call pumps the velocity vectors and physics calculations!
+                live_particle_system.tick_physics(props_list)
+                
+                # Update loop states on active emitter objects
+                for prop in props_list:
+                    if getattr(prop, 'is_emitting', True) and hasattr(prop, 'emitter') and prop.emitter:
+                        # Pass a steady frame delta constant to force positions up!
+                        prop.emitter.loop(2, 0.033)
+        except Exception as e:
+            print(f"[Prop Studio Heartbeat Warning] Simulation pump failed: {e}")
+
+        # Command the OpenGL viewport window to refresh and repaint the scene
+        if self.glob and getattr(self.glob, 'openGLWindow', None):
+            if hasattr(self.glob.openGLWindow, 'update'):
+                self.glob.openGLWindow.update()
+
 
     def calculate_live_particle_physics_tick(self):
-        """Computes particle vector increments inside memory tracking pools."""
+        """Merged System Heartbeat: Processes particle trajectory updates safely without duplicate overrides."""
         props_list = getattr(self.glob, 'custom_props_list', [])
         if not props_list:
             return
 
+
+        # Repaint the viewport window canvas cleanly
+        if self.glob and getattr(self.glob, 'openGLWindow', None):
+            self.glob.openGLWindow.update()
+
+
+        dt = 0.033 # Fixed 30 FPS physics calculation delta step
+
         for prop in props_list:
 
-            # Check variable schemas safely across all script generations
-            obj_type = getattr(prop, 'object_type', getattr(prop, 'type', 'STATIC'))
-            if str(obj_type).upper() != 'EMITTER' and not getattr(prop, 'is_emitting', False):
+            # Check normal emission switches (Play/Pause interface sync)
+            if not getattr(prop, 'is_emitting', False):
                 continue
             
-            # Check left sidebar checkbox visibility state gate blocks
             if self.leftPanel and hasattr(self.leftPanel, 'active_emit_cb'):
                 if not self.leftPanel.active_emit_cb.isChecked():
                     continue
 
-            # moved logic to emitter
-            #
             if prop.emitter:
                 emitter = prop.emitter
 
-                # 1. Generate fresh particle records up to the assigned buffer threshold
+                # 1. Spawn a burst of 3 fresh particles up to the maximum density slider threshold
                 if len(emitter.particles_pool) < int(emitter.max_particles):
-                    for _ in range(2):
-                        new_particle = MH2PropParticle(emitter.world_position, emitter.particle_color)
-                        emitter.particles_pool.append(new_particle)
+                    emitter.newParticles(2)
 
-                # 2. Progress coordinates smoothly using a flat physics delta time step
+                # 2. Progress particle coordinates smoothly along velocity vectors
+                # This executes a clean, non-hardcoded trajectory track inside emitter_prop.py
                 for p in emitter.particles_pool:
-                    p.update(0.033) # Progress physics forward using 30fps step
+                    p.update(dt)
 
-                # 3. Flush expired particle nodes out of active drawing tracking lists
-                emitter.particles_pool = [p for p in emitter.particles_pool if not p.is_dead()]
+                # 3. Flush expired nodes cleanly out of memory allocations
+                emitter.flushDead()
             
-                # 4. Bind values cleanly onto the shared object so opengl/multi_prop.py can read them
-                emitter.particles = [[float(part.x), float(part.y), float(part.z)] for part in emitter.particles_pool]
+                # 4. Flatten the structured variables completely into a continuous 1D floating-point array
+                emitter.particles = []
+                for part in emitter.particles_pool:
+                    emitter.particles.extend([float(part.x), float(part.y), float(part.z)])
 
-        # Trigger an immediate OpenGL canvas buffer refresh to repaint the canvas scene
+        # Command the OpenGL viewport window to refresh and repaint the scene
         if self.glob and getattr(self.glob, 'openGLWindow', None):
             self.glob.openGLWindow.update()
 
@@ -1224,17 +1310,22 @@ class PropManagerPanel(MHGroupBox):
             print(f"[Prop Studio Addon] Export Failure: {msg}")
 
     def trigger_fx_play(self):
-        """Wakes up emissions and registers variables with the background worker loops."""
+        """Wakes up emissions and registers variables with the background worker loops accurately."""
         if self.current_prop:
             self.current_prop.is_emitting = True
             self.current_prop.object_type = "EMITTER"
             self.current_prop.type = "EMITTER"
             
-            # UNIQUE ID BRIDGING ANCHOR
-            prop_id = getattr(self.current_prop, 'name', 'ball')
+            # Use the true lowercase manifest ID key handle to stop cross-talk!
+            prop_id = getattr(self.current_prop, 'prop_id', getattr(self.current_prop, 'name', 'ball')).strip().lower()
             
             if prop_id not in live_particle_system.emitter_pools:
                 live_particle_system.emitter_pools[prop_id] = []
+            
+            # Neutralize real-world pause gap jumps instantly on unpause
+            import time
+            if hasattr(live_particle_system, 'last_update_tick'):
+                live_particle_system.last_update_tick = time.time()
             
             if self.leftPanel and hasattr(self.leftPanel, 'active_emit_cb'):
                 self.leftPanel.active_emit_cb.setChecked(True)
@@ -1249,10 +1340,12 @@ class PropManagerPanel(MHGroupBox):
             print(f"[FX Playback] Simulation paused.")
 
     def trigger_fx_stop(self):
-        """Clears memory blocks and forces a viewport canvas refresh loop."""
+        """Clears memory blocks using the unified manifest lookup tracking keys."""
         if self.current_prop:
             self.current_prop.is_emitting = False
-            prop_id = getattr(self.current_prop, 'name', 'ball')
+            
+            # Ensure the cleanup routine targets the correct dictionary key!
+            prop_id = getattr(self.current_prop, 'prop_id', getattr(self.current_prop, 'name', 'ball')).strip().lower()
             
             if hasattr(self.current_prop, 'particles_pool'):
                 self.current_prop.particles_pool.clear()
@@ -1267,6 +1360,57 @@ class PropManagerPanel(MHGroupBox):
                 
             self._trigger_viewport_redraw()
             print(f"[FX Playback] Simulation stopped and pools flushed for: {prop_id}")
+
+    # ======================================================
+    # TARGET CALLBACK RECEIVERS FOR DYNAMIC EMITTER SLIDERS
+    # ======================================================
+    def toggle_ghost_mesh_mode(self):
+        """Toggles solid mesh visibility (Ghost Mode) without breaking transparent alpha layers!"""
+        if self.current_prop and not self.is_updating_ui:
+            current_state = getattr(self.current_prop, 'is_mesh_visible', True)
+            new_state = not current_state
+            self.current_prop.is_mesh_visible = new_state
+            self.current_prop.visible = new_state
+            if hasattr(self.current_prop, 'emitter') and self.current_prop.emitter:
+                self.current_prop.emitter.is_mesh_visible = new_state
+            self._trigger_viewport_redraw()
+            print(f"[FX Sync] Ghost mode updated. Mesh Drawing Active: {new_state}")
+
+    def toggle_particle_emission_state(self, state):
+        """Toggles whether the birth engine continues generating fresh particle streams."""
+        if self.current_prop and not self.is_updating_ui:
+            is_active = (state == 2)
+            self.current_prop.is_emitting = is_active
+            if hasattr(self.current_prop, 'emitter') and self.current_prop.emitter:
+                self.current_prop.emitter.is_emitting = is_active
+            print(f"[FX Sync] Creation generation engine switched: {is_active}")
+
+    def update_live_particle_density(self, value):
+        """Dynamically scales particle constraints inside the active background pools."""
+        if self.current_prop and not self.is_updating_ui:
+            target_count = int(value)
+            self.current_prop.max_particles = target_count
+            if hasattr(self.current_prop, 'emitter') and self.current_prop.emitter:
+                self.current_prop.emitter.max_particles = target_count
+            # Sync with the left panel slider if it exists to maintain layout harmony
+            if hasattr(self, 'leftPanel') and self.leftPanel and hasattr(self.leftPanel, 'density_slider'):
+                self.leftPanel.density_slider.blockSignals(True)
+                self.leftPanel.density_slider.setValue(float(target_count))
+                self.leftPanel.density_slider.blockSignals(False)
+
+    def update_live_particle_size(self, value):
+        """Updates particle point draw size diameters in real-time inside the viewport canvas."""
+        if self.current_prop and not self.is_updating_ui:
+            draw_size = float(value)
+            self.current_prop.particle_draw_size = draw_size
+            if hasattr(self.current_prop, 'emitter') and self.current_prop.emitter:
+                self.current_prop.emitter.particle_draw_size = draw_size
+            # Sync with the left panel slider if it exists to maintain layout harmony
+            if hasattr(self, 'leftPanel') and self.leftPanel and hasattr(self.leftPanel, 'size_slider'):
+                self.leftPanel.size_slider.blockSignals(True)
+                self.leftPanel.size_slider.setValue(draw_size)
+                self.leftPanel.size_slider.blockSignals(False)
+            self._trigger_viewport_redraw()
 
     def setLeftPanel(self, panel):
         """Links the numeric coordinate input forms to this panel manager."""
@@ -1464,7 +1608,18 @@ class PropManagerPanel(MHGroupBox):
 
         if hasattr(self, 'prop_fsm') and self.prop_fsm:
             self.state_label.setText(f"Current State Pipeline: {self.prop_fsm.current_state_name}")
+
+        self.is_updating_ui = True
+        if hasattr(self, 'active_emit_cb') and self.active_emit_cb:
+            self.active_emit_cb.setChecked(2 if getattr(self.current_prop, 'is_emitting', True) else 0)
+        if hasattr(self, 'density_spin') and self.density_spin:
+            self.density_spin.setValue(float(getattr(self.current_prop, 'max_particles', 300)))
+        if hasattr(self, 'size_spin') and self.size_spin:
+            self.size_spin.setValue(float(getattr(self.current_prop, 'particle_draw_size', 16.0)))
+        self.is_updating_ui = False
+
         return self.current_prop
+
 
     def _trigger_viewport_redraw(self):
         """Helper to safely wake up and update the shared OpenGL scene viewport context."""
@@ -1502,7 +1657,7 @@ class PropManagerPanel(MHGroupBox):
             current_run_state = getattr(self.prop_fsm, 'current_state_name', 'IDLE')
             self.state_label.setText(f"Current State Pipeline: {current_run_state}")
 
-            # FIXED: Let MultiPropManager handle the matrix drawing rigidly instead of overwriting raw positional variables
+            # Let MultiPropManager handle the matrix drawing rigidly instead of overwriting raw positional variables
             if current_run_state in ["EQUIPPING", "USING"] and getattr(self.current_prop, 'use_parenting', False):
                 self.prop_fsm.update_machine(active_name)
                 # Keep local offset variables connected, but do not override self.current_prop.position here!
@@ -1511,7 +1666,6 @@ class PropManagerPanel(MHGroupBox):
                 if getattr(self.current_prop, 'use_parenting', False) and hasattr(self.current_prop, 'detach'):
                     self.current_prop.detach()
                 self.prop_fsm.update_machine(active_name)
-
 
     def sync_sidebar_list_display(self):
         """Refreshes the itemized catalog rows displayed in the left workspace panel."""
@@ -1632,12 +1786,12 @@ class PropManagerPanel(MHGroupBox):
                             if getattr(a, 'path', '') == full_obj_path: 
                                 a.used = is_active
 
-                    # FIXED: Append to our local display data array block securely
+                    # Append to local display data array block securely
                     status_str = "Active in Scene" if is_active else "Available File"
                     action_str = "Double-click to remove" if is_active else "Double-click to equip"
                     data.append([base_name, status_str, action_str])
 
-        # FIXED: Prevent the inventory layout loops from breaking your asset selection columns!
+        # Prevent the inventory layout loops from breaking asset selection columns
         if self.leftPanel and hasattr(self.leftPanel, 'inventory_table'):
             self.leftPanel.inventory_table.blockSignals(True)
             self.leftPanel.refresh_inventory_list() # Uses dedicated refresh function safely instead of wiping columns
@@ -1685,7 +1839,7 @@ class PropManagerPanel(MHGroupBox):
         obj = pm.getObj()
         file_base_name = pm.getOriginalName().lower().strip()
         
-        # Load your configuration settings dictionary records
+        # Load the configuration settings dictionary records
         manifest = load_props_manifest()
         config_data = None
         
@@ -1736,6 +1890,30 @@ class PropManagerPanel(MHGroupBox):
                 use_parent = config_data.get("use_parenting", use_parent)
                 target_bone = config_data.get("default_bone", target_bone)
 
+            # DYNAMIC TARGETING: 
+            # Replaces the hardcoded right-hand test with a fluid lookup based on the true manifest bone names!
+            if use_parent and target_bone != "None":
+                bc = self.glob.baseClass
+                skeleton = bc.pose_skeleton if bc.in_posemode else bc.default_skeleton
+                if skeleton:
+                    # Dynamically convert human-readable names to underlying engine bone slots safely
+                    bone_mapping_name = target_bone
+                    if target_bone == "hand_R":
+                        bone_mapping_name = "wrist.R"
+                    elif target_bone == "hand_L":
+                        bone_mapping_name = "wrist.L"
+                    elif target_bone == "head":
+                        bone_mapping_name = "head"
+
+                    if bone_mapping_name in skeleton.bones:
+                        bone = skeleton.bones[bone_mapping_name]
+                        if bc.in_posemode:
+                            initial_pos = getattr(bone, 'poseheadPos', initial_pos)
+                        else:
+                            initial_pos = getattr(bone, 'headPos', initial_pos)
+
+
+
         safe_pos = [float(p) for p in initial_pos] if hasattr(initial_pos, '__len__') else [0.0, 0.0, 0.0]
         safe_rot = [float(r) for r in initial_rot] if hasattr(initial_rot, '__len__') else [0.0, 0.0, 0.0]
         
@@ -1779,7 +1957,11 @@ class PropManagerPanel(MHGroupBox):
             new_prop.is_emitting = False
 
         if new_prop.object_type == "EMITTER" and new_prop.is_emitting:
-            new_prop.emitter = MH2LiveEmitterProp(new_prop.prop_id, config_data)
+            new_prop.emitter = MH2LiveEmitterProp(self.glob, new_prop.prop_id, config_data)
+            success, err = new_prop.emitter.loadParticleMesh()      # always works, returns true when not physical mesh
+            if not success:
+                ErrorBox(self.glob.centralWidget, err)
+            new_prop.emitter.loadParticleTexture()
 
         new_prop.position = np.array(safe_pos, dtype=np.float64)
         new_prop.rotation = np.array(safe_rot, dtype=np.float64)
@@ -1788,9 +1970,12 @@ class PropManagerPanel(MHGroupBox):
         new_prop.is_mesh_visible = initial_vis
         new_prop.use_parenting = use_parent
         new_prop.parent_bone = target_bone
+        
+        new_prop.name = str(name)
 
         if not hasattr(self.glob, 'custom_props_list') or self.glob.custom_props_list is None:
             self.glob.custom_props_list = []
+
         self.current_prop = new_prop
         self.glob.custom_props_list.append(new_prop)
 
@@ -1946,7 +2131,6 @@ class PropManagerPanel(MHGroupBox):
         self.glob.openGLWindow.Tweak()
 
     def findBonePosition(self):
-        """Snaps an object's position directly onto the skeleton's coordinates."""
         pbone = self.bone_selector.currentText()
         if pbone == "None" or not self.parent_toggle.isChecked(): 
             return
@@ -1954,40 +2138,27 @@ class PropManagerPanel(MHGroupBox):
         bc = getattr(self.glob, 'baseClass', None)
         if bc is None: 
             return
-            
-        pinfo = getattr(bc, 'baseInfo', {})
-        if not "props" in pinfo or pbone not in pinfo["props"]: 
-            return
-            
-        pbone = pinfo["props"][pbone]
-        skeleton = bc.pose_skeleton if getattr(bc, 'in_posemode', False) else bc.skeleton
-        if skeleton is None: 
-            skeleton = getattr(bc, 'default_skeleton', None)
-        if skeleton is None: 
-            return
-            
-        if hasattr(skeleton, 'bones') and pbone in skeleton.bones:
-            bone = skeleton.bones[pbone]
-            b_coord = bone.posetailPos if getattr(bc, 'in_posemode', False) else bone.tailPos
-            
-            if b_coord is not None and self.current_prop: 
+ 
+        b_coord, bone = bc.getVirtualBonePosition(pbone)
 
-                # Pull custom offset adjustments securely from local metadata slots
-                offset = getattr(self.current_prop, 'local_offset_pos', np.array([0.0,0.0,0.0]))
+        if bone and self.current_prop: 
+
+            # Pull custom offset adjustments securely from local metadata slots
+            offset = getattr(self.current_prop, 'local_offset_pos', np.array([0.0,0.0,0.0]))
                 
-                # Apply absolute snap coordinates without stacking values into an infinite drift loop
-                aligned_pos = [
-                    float(offset[0]) + float(b_coord.x()),
-                    float(offset[1]) + float(b_coord.y()),
-                    float(offset[2]) + float(b_coord.z())
-                ]
+            # Apply absolute snap coordinates without stacking values into an infinite drift loop
+            aligned_pos = [
+                float(offset[0] + b_coord[0]),
+                float(offset[1] + b_coord[1]),
+                float(offset[2] + b_coord[2])
+            ]
                 
-                self.current_prop.position = np.array(aligned_pos, dtype=np.float64)
+            self.current_prop.position = np.array(aligned_pos, dtype=np.float64)
                 
-                if self.leftPanel:
-                    self.leftPanel.setValueFromProp(self.current_prop)
+            if self.leftPanel:
+                self.leftPanel.setValueFromProp(self.current_prop)
                     
-                self._trigger_viewport_redraw()
+            self._trigger_viewport_redraw()
 
 _standalone_studio_dock_instance = None
 
@@ -2371,12 +2542,10 @@ def initialize_prop_studio(app_reference, glob_reference, **kwargs):
 
         local_grid_widget.itemDoubleClicked.connect(handle_local_grid_click)
 
-
         if 'room_layout' in locals() or 'room_layout' in globals():
-            studio_room_main.blockSignals(True)
-            if hasattr(main_window, 'central_widget') and main_window.central_widget:
-                main_window.central_widget.blockSignals(True)
-
+            # ==================================
+            # 🛠️ THE INTERFACE BLOCKOUT UNLINK:
+            # ==================================
             panel_slider_splitter = QSplitter(Qt.Horizontal)
             panel_slider_splitter.setObjectName("prop_studio_room_adjustable_splitter")
             
@@ -2388,11 +2557,9 @@ def initialize_prop_studio(app_reference, glob_reference, **kwargs):
             room_layout.addWidget(panel_slider_splitter)
             print("[Prop Studio Core] Safely attached adjustable layout panel sliders.")
             
-            studio_room_main.blockSignals(False)
-            if hasattr(main_window, 'central_widget') and main_window.central_widget:
-                main_window.central_widget.blockSignals(False)
         else:
             _standalone_studio_dock_instance.setWidget(studio_room_main)
+
 
         if hasattr(glob_reference, 'prop_manager_pipeline') and glob_reference.prop_manager_pipeline:
             print("[Prop Studio Core] Reuse application multi-prop manager context.")
