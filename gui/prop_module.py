@@ -1741,15 +1741,31 @@ class PropManagerPanel(MHGroupBox):
         if hasattr(self, 'size_spin') and self.size_spin:
             self.size_spin.setValue(float(getattr(self.current_prop, 'particle_draw_size', 16.0)))
             
-        #Sync Mixer Widgets with current values
+        # Sync Mixer Widgets with current values safely without index crashes!
         if hasattr(self, 'current_prop') and self.current_prop:
             emitter = getattr(self.current_prop, 'emitter', None)
             grav = getattr(emitter, 'gravity', [0.0, -9.81, 0.0]) if emitter else [0.0, -9.81, 0.0]
             angle = getattr(emitter, 'spread_angle', 15.0) if emitter else 15.0
-            
-            self.mixer_grav_y.setValue(float(grav[1]))
-            self.mixer_grav_x.setValue(float(grav[0]))
+
+            if isinstance(grav, (list, tuple, np.ndarray)) and len(grav) >= 3:
+                gx = float(grav[0])
+                gy = float(grav[1])
+            elif isinstance(grav, (list, tuple, np.ndarray)) and len(grav) > 0:
+                gx = float(grav[0])
+                gy = float(grav[0])
+            elif isinstance(grav, dict):
+                # Safely parse out dictionary configuration string or integer keys
+                gx = float(grav.get(0, grav.get("0", 0.0)))
+                gy = float(grav.get(1, grav.get("1", -9.81)))
+            else:
+                # Direct primitive float fallback assignment
+                gx = 0.0
+                gy = float(grav) if grav is not None else -9.81
+
+            self.mixer_grav_y.setValue(gy)
+            self.mixer_grav_x.setValue(gx)
             self.mixer_spread_angle.setValue(float(angle))
+
             
         self.is_updating_ui = False
         return self.current_prop
