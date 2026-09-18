@@ -164,7 +164,7 @@ class MultiPropManager():
                 gl.glDepthMask(gl.GL_TRUE)
                 gl.glDisable(gl.GL_BLEND)
 
-                # Ghost Mode Intercept Verification (Draws the true solid 3D .obj geometry cleanly)
+                # Ghost Mode Intercept Verification (Draws your true solid 3D .obj geometry cleanly)
                 mesh_vis = getattr(prop_data, 'is_mesh_visible', True)
                 if mesh_vis and hasattr(prop_data, 'mesh_reference') and getattr(prop_data.mesh_reference, 'render', None) is not None:
                     prop_data.mesh_reference.render.draw(final_mvp, campos, light_obj, False)
@@ -180,7 +180,7 @@ class MultiPropManager():
 
                 # Route draw commands directly to the core emitter methods cleanly
                 if prop_data.emitter and getattr(prop_data, 'is_emitting', True):
-                    # Dynamically execute pre-draw hardware checks if the files define them
+                    # 🟢 Dynamically execute pre-draw hardware checks if your files define them
                     if hasattr(prop_data.emitter, 'startOpenGL'):
                         prop_data.emitter.startOpenGL()
 
@@ -196,7 +196,7 @@ class MultiPropManager():
                     elif emode == "BILLBOARD":
                         prop_data.emitter.drawBillboards(campos)
 
-                    # Clear point sprite parameters inside the clean-up loops cleanly
+                    # 🟢 Clear point sprite parameters inside your clean-up loops cleanly
                     if hasattr(prop_data.emitter, 'finishOpenGL'):
                         prop_data.emitter.finishOpenGL()
 

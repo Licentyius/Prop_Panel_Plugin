@@ -1,6 +1,6 @@
 ######
 #
-# .json Manager  V1.1 by Elvaerwyn MH_2 2026
+# .json Manager  V1.2 by Elvaerwyn MH_2 2026
 # For use in the prop panel plugin for Makehuman 2
 #
 ######
@@ -49,7 +49,7 @@ def update_prop_json_entry(prop_id, update_dict):
 def load_individual_asset_json(mesh_path_string):
     """
     Dynamically searches for a standalone companion .json file right next to 
-    the loaded .obj model mesh anywhere on the hard drive natively!
+    the loaded .obj model mesh anywhere on your hard drive natively!
     """
     if not mesh_path_string:
         return None

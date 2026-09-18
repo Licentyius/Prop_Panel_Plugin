@@ -1,5 +1,5 @@
 """
-Prop Module v2.3 (Unified Edition V1).
+Prop Module v2.4 (Unified Edition V2).
 Part of the MakeHuman 2 Project contributed by Elvaerwyn_MH2 2026.
 """
 
@@ -291,34 +291,6 @@ class PropManLeftPanel(QWidget):
         self.prop_list.setMinimumHeight(120)  # Safe size target for list rows
         self.prop_list.currentItemChanged.connect(self.select_prop)
         master_panel_flow.addWidget(self.prop_list)
-
-        self.live_fx_modifiers_group = MHGroupBox("Live FX Simulation Tuning")
-        fx_tuning_form = QFormLayout()
-
-        # Slider 1: Stream Density Modifier 
-        self.density_slider = QDoubleSpinBox()
-        self.density_slider.setRange(10.0, 2000.0)
-        self.density_slider.setSingleStep(25.0)
-        self.density_slider.setValue(300.0)
-        self.density_slider.setDecimals(0)
-        self.density_slider.setSuffix(" pts")
-        self.density_slider.valueChanged.connect(self.sync_density_to_active_prop)
-        fx_tuning_form.addRow("Stream Density:", self.density_slider)
-
-        # Slider 2: Sprite Size Modifier 
-        self.size_slider = QDoubleSpinBox()
-        self.size_slider.setRange(1.0, 128.0)
-        self.size_slider.setSingleStep(1.0)
-        self.size_slider.setValue(6.0)
-        self.size_slider.setDecimals(1)
-        self.size_slider.setSuffix(" px")
-        self.size_slider.valueChanged.connect(self.sync_size_to_active_prop)
-        fx_tuning_form.addRow("Sprite Point Size:", self.size_slider)
-
-        self.live_fx_modifiers_group.setLayout(fx_tuning_form)
-        master_panel_flow.addWidget(self.live_fx_modifiers_group)
-        
-        self.live_fx_modifiers_group.setVisible(True)
 
         master_panel_flow.addWidget(QLabel("<b>2D Room Boundary Planner Map:</b>"))
         self.room_boundary_map_widget = MHRoomLayoutMap(parent=parent, is_boundary_planner=True) 
@@ -630,12 +602,12 @@ class PropManLeftPanel(QWidget):
         """Monitors item row selections inside the layout to toggle emitter control panels."""
         if not current or not self.propman:
 
-         if hasattr(self, 'emitter_context_group') and self.emitter_context_group:
-            self.emitter_context_group.setVisible(False)
+            if hasattr(self, 'emitter_context_group') and self.emitter_context_group:
+                self.emitter_context_group.setVisible(False)
+            return  
 
-            return
+        raw_text = current.text() 
 
-        raw_text = current.text()
         print(f"[Prop Studio UI Check] Selected row entry text target string: '{raw_text}'")
 
         # Extract the raw clean prop ID out of active formatted list item prefix string
@@ -657,22 +629,28 @@ class PropManLeftPanel(QWidget):
         
         asset_profile = loaded_manifest.get(prop_id, {})
         obj_type = str(asset_profile.get("type", getattr(current_prop, 'object_type', 'STATIC'))).upper()
-
         if obj_type == "EMITTER" or getattr(current_prop, 'object_type', 'STATIC') == 'EMITTER':
-            self.ghost_mode_cb.blockSignals(True)
-            self.active_emit_cb.blockSignals(True)
+
+            manager = getattr(self, 'propman', None)
             
-            # Map parameters safely while preserving status toggles
-            self.ghost_mode_cb.setChecked(not asset_profile.get("is_mesh_visible", getattr(current_prop, 'is_mesh_visible', True)))
-            self.active_emit_cb.setChecked(asset_profile.get("is_emitting", getattr(current_prop, 'is_emitting', True)))
+            if manager and hasattr(manager, 'ghost_emitter_btn') and manager.ghost_emitter_btn:
+                manager.ghost_emitter_btn.blockSignals(True)
+                manager.ghost_emitter_btn.setChecked(not asset_profile.get("is_mesh_visible", getattr(current_prop, 'is_mesh_visible', True)))
+                manager.ghost_emitter_btn.blockSignals(False)
+
+            if manager and hasattr(manager, 'active_emit_cb') and manager.active_emit_cb:
+                manager.active_emit_cb.blockSignals(True)
+                manager.active_emit_cb.setChecked(asset_profile.get("is_emitting", getattr(current_prop, 'is_emitting', True)))
+                manager.active_emit_cb.blockSignals(False)
             
-            self.ghost_mode_cb.blockSignals(False)
-            self.active_emit_cb.blockSignals(False)
-            
-            self.emitter_context_group.setVisible(True)
+            if hasattr(self, 'emitter_context_group') and self.emitter_context_group:
+                self.emitter_context_group.setVisible(True)
+                
             print(f"[Prop Studio UI] UI intersection check passed. Displaying emitter tools group widget.")
         else:
-            self.emitter_context_group.setVisible(False)
+            if hasattr(self, 'emitter_context_group') and self.emitter_context_group:
+                self.emitter_context_group.setVisible(False)
+
 
         if hasattr(self.glob, 'openGLWindow') and self.glob.openGLWindow:
             self.glob.openGLWindow.update()
@@ -1023,7 +1001,18 @@ class PropManagerPanel(MHGroupBox):
         self.equip_trigger_btn.setStyleSheet("background-color: #2b8f5c; color: white; font-weight: bold; padding: 5px;")
         layout.addWidget(self.equip_trigger_btn)
 
+        # =====================================================================
+        # THE LIVE PARTICLE EMITTER ATTACHMENT TRIGGER
+        # Instantly converts a flat STATIC mesh into a live particle system on the fly!
+        # =====================================================================
+        self.attach_fx_btn = QPushButton("✨ Add Particle System to Asset")
+        self.attach_fx_btn.clicked.connect(self.attach_live_emitter_on_the_fly)
+        self.attach_fx_btn.setStyleSheet("background-color: #A23D81; color: white; font-weight: bold; padding: 5px;")
+        layout.addWidget(self.attach_fx_btn)
+        # =====================================================================
+
         self.save_btn = QPushButton("Save Transform to JSON")
+
         self.save_btn.clicked.connect(self.save_prop_data)
         self.save_btn.setStyleSheet("padding: 5px;")
         layout.addWidget(self.save_btn)
@@ -1095,6 +1084,41 @@ class PropManagerPanel(MHGroupBox):
         self.size_spin.valueChanged.connect(self.update_live_particle_size)
         tweaks_layout.addWidget(self.size_spin)
 
+        # ==================================
+        # LIVE FX AUDIO/VISUAL MIXER TRACKS
+        # ==================================
+        tweaks_layout.addWidget(QLabel("<b><br>🎛️ Live Physics FX Mixer:</b>"))
+
+        # Mixer Track 1: Vertical Flow (Gravity Y)
+        tweaks_layout.addWidget(QLabel("Vertical Jet Flow (Up/Down):"))
+        self.mixer_grav_y = QDoubleSpinBox()
+        self.mixer_grav_y.setRange(-50.0, 50.0)
+        self.mixer_grav_y.setSingleStep(1.0)
+        self.mixer_grav_y.setDecimals(2)
+        self.mixer_grav_y.setSuffix(" m/s²")
+        self.mixer_grav_y.valueChanged.connect(self.update_mixer_gravity_y)
+        tweaks_layout.addWidget(self.mixer_grav_y)
+
+        # Mixer Track 2: Crosswind Drift (Gravity X)
+        tweaks_layout.addWidget(QLabel("Horizontal Crosswind (Left/Right):"))
+        self.mixer_grav_x = QDoubleSpinBox()
+        self.mixer_grav_x.setRange(-50.0, 50.0)
+        self.mixer_grav_x.setSingleStep(1.0)
+        self.mixer_grav_x.setDecimals(2)
+        self.mixer_grav_x.setSuffix(" m/s²")
+        self.mixer_grav_x.valueChanged.connect(self.update_mixer_gravity_x)
+        tweaks_layout.addWidget(self.mixer_grav_x)
+
+        # Mixer Track 3: Spray Spread Angle
+        tweaks_layout.addWidget(QLabel("Conical Spray Spread Angle:"))
+        self.mixer_spread_angle = QDoubleSpinBox()
+        self.mixer_spread_angle.setRange(0.0, 180.0)
+        self.mixer_spread_angle.setSingleStep(5.0)
+        self.mixer_spread_angle.setDecimals(1)
+        self.mixer_spread_angle.setSuffix(" °")
+        self.mixer_spread_angle.valueChanged.connect(self.update_mixer_spread_angle)
+        tweaks_layout.addWidget(self.mixer_spread_angle)
+
         self.live_particle_tweaks_group.setLayout(tweaks_layout)
         layout.addWidget(self.live_particle_tweaks_group)
 
@@ -1141,7 +1165,7 @@ class PropManagerPanel(MHGroupBox):
                 pass
             
         # ======================
-        # 🛠️ THE TIMELINE PLUG: 
+        # THE TIMELINE PLUG: 
         # ======================
         try:
             props_list = getattr(self.glob, 'custom_props_list', [])
@@ -1164,6 +1188,61 @@ class PropManagerPanel(MHGroupBox):
             if hasattr(self.glob.openGLWindow, 'update'):
                 self.glob.openGLWindow.update()
 
+    # =====================================================================
+    # LIVE FX INJECTION VALVE
+    # Wakes up a flat mesh and patches it into the particle simulation tracks!
+    # =====================================================================
+    def attach_live_emitter_on_the_fly(self):
+        """Converts the active static prop into a live working Emitter instance instantly."""
+        if not self.current_prop:
+            print("[Prop Studio Mixer] Conversion aborted: No active prop asset selected.")
+            return
+
+        # 1. Flip structural object identity type switches natively
+        self.current_prop.object_type = "EMITTER"
+        self.current_prop.type = "EMITTER"
+        self.current_prop.is_emitting = True
+
+        # 2. Build a baseline parameter profile payload
+        fallback_profile = {
+            "name": str(self.current_prop.name),
+            "type": "EMITTER",
+            "emitter_mode": "TEXTURED_SPRITES",
+            "particle_texture": "data/props/particles/sparkle.png",
+            "particle_count": 300,
+            "max_particles": 300,
+            "particle_draw_size": 16.0,
+            "particle_color": [1.0, 0.6, 0.2, 1.0],
+            "gravity": [0.0, -9.81, 0.0],
+            "spread_angle": 15.0
+        }
+
+        # 3. Instantiate the true background calculation pool tracking entity
+        print(f"[Prop Studio Core] Attaching live particle physics engine to: {self.current_prop.name}")
+        new_emitter = MH2LiveEmitterProp(self.glob, str(getattr(self.current_prop, 'prop_id', self.current_prop.name)), fallback_profile)
+        
+        # Load baseline textures and assets natively
+        new_emitter.emitter_mode = "TEXTURED_SPRITES"
+        new_emitter.particle_draw_size = 16.0
+        new_emitter.max_particles = 300
+        new_emitter.loadParticleTexture()
+        
+        self.current_prop.emitter = new_emitter
+
+        # 4. Plug the sub-emitter instance straight back up to your active pipeline managers
+        pipeline = getattr(self.glob, 'prop_manager_pipeline', None)
+        if pipeline and hasattr(pipeline, 'active_props') and self.current_prop.name in pipeline.active_props:
+            pipeline.active_props[self.current_prop.name]["emitter"] = new_emitter
+
+        # 5. Force the UI slider blocks to sync up and become visible
+        self.visibility_toggle.setChecked(True)
+        self.setCurrentProp(self.current_prop.name)
+        
+        if hasattr(self, 'sync_sidebar_list_display'):
+            self.sync_sidebar_list_display()
+            
+        self._trigger_viewport_redraw()
+        print(f"[Prop Studio UI] Success: Asset converted to live Emitter. Mixer channels active.")
 
     def calculate_live_particle_physics_tick(self):
         """Merged System Heartbeat: Processes particle trajectory updates safely without duplicate overrides."""
@@ -1412,6 +1491,38 @@ class PropManagerPanel(MHGroupBox):
                 self.leftPanel.size_slider.blockSignals(False)
             self._trigger_viewport_redraw()
 
+    # =============================================
+    # LIVE MIXER SIGNAL CALLBACK RECEIVERS
+    # Natively mutates physics vectors on the fly!
+    # =============================================
+    def update_mixer_gravity_y(self, value):
+        """Live balances gravity weight up or down on the fly."""
+        if self.current_prop and not self.is_updating_ui:
+            if hasattr(self.current_prop, 'emitter') and self.current_prop.emitter:
+                emitter = self.current_prop.emitter
+                if not hasattr(emitter, 'gravity') or emitter.gravity is None:
+                    emitter.gravity = [0.0, 0.0, 0.0]
+                emitter.gravity[1] = float(value)
+                print(f"[Mixer EQ] Vertical vector adjusted to: {value} m/s²")
+
+    def update_mixer_gravity_x(self, value):
+        """Live skews particle trajectories sideways on the fly."""
+        if self.current_prop and not self.is_updating_ui:
+            if hasattr(self.current_prop, 'emitter') and self.current_prop.emitter:
+                emitter = self.current_prop.emitter
+                if not hasattr(emitter, 'gravity') or emitter.gravity is None:
+                    emitter.gravity = [0.0, 0.0, 0.0]
+                emitter.gravity[0] = float(value)
+                print(f"[Mixer EQ] Crosswind vector adjusted to: {value} m/s²")
+
+    def update_mixer_spread_angle(self, value):
+        """Live constraints spray cones tighter or wider on the fly."""
+        if self.current_prop and not self.is_updating_ui:
+            if hasattr(self.current_prop, 'emitter') and self.current_prop.emitter:
+                self.current_prop.emitter.spread_angle = float(value)
+                print(f"[Mixer EQ] Spray angle boundary opened to: {value}°")
+
+
     def setLeftPanel(self, panel):
         """Links the numeric coordinate input forms to this panel manager."""
         self.leftPanel = panel
@@ -1523,6 +1634,11 @@ class PropManagerPanel(MHGroupBox):
             rot_list = [float(r) for r in rot] if hasattr(rot, '__len__') else [0.0, 0.0, 0.0]
             scl_list = [float(s) for s in scl] if hasattr(scl, '__len__') else [1.0, 1.0, 1.0]
 
+            # Pull values directly out of the active mixer attributes
+            emitter_ref = getattr(active_prop, 'emitter', None)
+            live_grav = getattr(emitter_ref, 'gravity', [0.0, -9.81, 0.0]) if emitter_ref else [0.0, -9.81, 0.0]
+            live_angle = getattr(emitter_ref, 'spread_angle', 15.0) if emitter_ref else 15.0
+
             json_structure = {
                 "name": str(getattr(active_prop, "name", "NewProp")),
                 "type": str(getattr(active_prop, "object_type", "STATIC")),
@@ -1537,8 +1653,16 @@ class PropManagerPanel(MHGroupBox):
                 "particle_count": int(getattr(active_prop, "max_particles", 300)),
                 "color_rgba": [float(c) for c in getattr(active_prop, "particle_color", [1.0, 0.5, 0.0, 1.0])],
                 "default_bone": str(getattr(active_prop, "parent_bone", "hand_R")),
-                "use_parenting": bool(getattr(active_prop, "use_parenting", False))
+                "use_parenting": bool(getattr(active_prop, "use_parenting", False)),
+                
+                # 🟢 WRITES LIVE MIXER DATA DIRECTLY BACK TO YOUR JSON FILES!
+                "emitter_mode": str(getattr(active_prop, "emitter_mode", "PARTICLES")),
+                "particle_texture": str(getattr(active_prop, "particle_texture", "PLAIN")),
+                "particle_draw_size": float(getattr(active_prop, "particle_draw_size", 16.0)),
+                "gravity": [float(live_grav[0]), float(live_grav[1]), float(live_grav[2])],
+                "spread_angle": float(live_angle)
             }
+
 
             with open(destination_json_path, 'w', encoding='utf-8') as json_file:
                 json.dump(json_structure, json_file, indent=4)
@@ -1616,10 +1740,19 @@ class PropManagerPanel(MHGroupBox):
             self.density_spin.setValue(float(getattr(self.current_prop, 'max_particles', 300)))
         if hasattr(self, 'size_spin') and self.size_spin:
             self.size_spin.setValue(float(getattr(self.current_prop, 'particle_draw_size', 16.0)))
+            
+        #Sync Mixer Widgets with current values
+        if hasattr(self, 'current_prop') and self.current_prop:
+            emitter = getattr(self.current_prop, 'emitter', None)
+            grav = getattr(emitter, 'gravity', [0.0, -9.81, 0.0]) if emitter else [0.0, -9.81, 0.0]
+            angle = getattr(emitter, 'spread_angle', 15.0) if emitter else 15.0
+            
+            self.mixer_grav_y.setValue(float(grav[1]))
+            self.mixer_grav_x.setValue(float(grav[0]))
+            self.mixer_spread_angle.setValue(float(angle))
+            
         self.is_updating_ui = False
-
         return self.current_prop
-
 
     def _trigger_viewport_redraw(self):
         """Helper to safely wake up and update the shared OpenGL scene viewport context."""
@@ -1958,10 +2091,30 @@ class PropManagerPanel(MHGroupBox):
 
         if new_prop.object_type == "EMITTER" and new_prop.is_emitting:
             new_prop.emitter = MH2LiveEmitterProp(self.glob, new_prop.prop_id, config_data)
-            success, err = new_prop.emitter.loadParticleMesh()      # always works, returns true when not physical mesh
+
+            if config_data and "physics" in config_data:
+                phys = config_data["physics"]
+                
+                # Unpack the gravity vector constants natively
+                if "gravity" in phys:
+                    new_prop.emitter.gravity = phys["gravity"]
+                    
+                # Unpack the initial velocity speed parameters safely
+                if "initialSpeed" in phys:
+                    new_prop.emitter.speed_min = float(phys["initialSpeed"].get("min", 0.2))
+                    new_prop.emitter.speed_max = float(phys["initialSpeed"].get("max", 0.8))
+                    
+                # Map the directional spread parameters dynamically
+                if "spread_direction" in phys:
+                    new_prop.emitter.spread_direction = phys["spread_direction"]
+                if "spread_angle" in phys:
+                    new_prop.emitter.spread_angle = float(phys["spread_angle"])
+            
+            success, err = new_prop.emitter.loadParticleMesh()
             if not success:
                 ErrorBox(self.glob.centralWidget, err)
             new_prop.emitter.loadParticleTexture()
+
 
         new_prop.position = np.array(safe_pos, dtype=np.float64)
         new_prop.rotation = np.array(safe_rot, dtype=np.float64)
