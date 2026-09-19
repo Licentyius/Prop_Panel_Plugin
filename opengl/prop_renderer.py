@@ -1,6 +1,6 @@
 ######
 #
-# Prop Renderer V1.6a (Restored Build)
+# Prop Renderer V1.7 (Restored Build)
 # Part of the MakeHuman 2 Project contributed by Elvaerwyn_MH2 2026
 #
 ######
@@ -67,7 +67,8 @@ def inject_particle_gl_draw_pass(glob, custom_props_list):
         if not getattr(prop, 'is_emitting', True):
             continue
 
-        mode = getattr(prop, 'emitter_mode', 'PARTICLES').upper().strip()
+        raw_mode = str(getattr(prop, 'emitter_mode', 'PARTICLES')).upper().strip()
+        mode = raw_mode.replace(" ", "_").replace("-", "_"))
         if prop.emitter and mode == "PHYSICAL_MESH":
             continue
 
@@ -130,22 +131,27 @@ def inject_particle_gl_draw_pass(glob, custom_props_list):
             
             if active_tex_id is not None:
                 gl.glEnable(gl.GL_BLEND)
-        
-                # 🚀 UNIVERALLY ACCEPTS BOTH GLOWING ADDITIVE AND SMOOTH ALPHA TRANSPARENCIES:
                 gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
         
                 gl.glEnable(gl.GL_POINT_SPRITE)
                 gl.glTexEnvi(gl.GL_POINT_SPRITE, gl.GL_COORD_REPLACE, gl.GL_TRUE)
-                gl.glDisable(gl.GL_DEPTH_TEST)
-                gl.glDepthMask(gl.GL_FALSE)
+                
+
+                gl.glEnable(gl.GL_DEPTH_TEST)   # Read where the character is standing
+                gl.glDepthMask(gl.GL_FALSE)     # 🚀 THE FIX: Stop writing solid depth paths!
+                
                 gl.glEnable(gl.GL_TEXTURE_2D)
                 gl.glBindTexture(gl.GL_TEXTURE_2D, active_tex_id)
 
                 gl.glTexEnvi(gl.GL_TEXTURE_ENV, gl.GL_TEXTURE_ENV_MODE, gl.GL_MODULATE)
                 
-                quad_size = (size if size > 0.0 else 48.0) * 0.001
+
+                gl.glDisable(gl.GL_ALPHA_TEST)
                 
-                # 🟢 BLIT INDIVIDUAL ALPHA TEXTURE QUADS DIRECTLY 
+                quad_size = (size if size > 0.0 else 48.0) * 0.001
+
+                
+                # BLIT INDIVIDUAL ALPHA TEXTURE QUADS DIRECTLY 
                 gl.glBegin(gl.GL_QUADS)
                 for idx in range(0, len(vertices), 3):
                     gl.glColor4f(r, g, b, a)
@@ -158,20 +164,38 @@ def inject_particle_gl_draw_pass(glob, custom_props_list):
                 gl.glEnd()
                 
                 # =====================================================================
-                # Safely clear the active program and texture bindings BEFORE restoring 
-                # depth states to prevent drivers from locking into black screens!
+                # UNIFIED SHADER ALIGNMENT PASS (The "Borrow and Return" Policy)
+                # Safely wipes out texture registers and forces a complete master shader 
+                # re-bind BEFORE popping attributes for driver stability!
                 # =====================================================================
+                gl.glActiveTexture(gl.GL_TEXTURE0)
                 gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
-                gl.glUseProgram(0)
+                gl.glUseProgram(0)  # Empty the active shader registers completely first
                 
                 gl.glEnable(gl.GL_DEPTH_TEST)
                 gl.glDepthMask(gl.GL_TRUE)
+                
                 gl.glPopAttrib()
                 gl.glPopMatrix()
+                
+                # Natively force MakeHuman 2 to re-claim its active PBR/Phong shader tracks
+                pipeline_manager = getattr(glob, 'prop_manager_pipeline', None)
+                if pipeline_manager and hasattr(pipeline_manager, 'setShader'):
+                    pipeline_manager.setShader()
+                    
                 continue
 
             else:
+
+                gl.glActiveTexture(gl.GL_TEXTURE0)
+                gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
+                gl.glUseProgram(0)  # Reset the hardware shader pipeline registry!
+                
+                gl.glEnable(gl.GL_DEPTH_TEST)
+                gl.glDepthMask(gl.GL_TRUE)
+                
                 mode = "PARTICLES"
+
 
         # MODE 2: FLAT SOLID SPRITES
         if mode == "SPRITES":
@@ -197,7 +221,21 @@ def inject_particle_gl_draw_pass(glob, custom_props_list):
         gl.glVertexPointer(3, gl.GL_FLOAT, 0, vertex_data)
         gl.glDrawArrays(gl.GL_POINTS, 0, len(vertex_data) // 3)
 
+        # =====================================================================
+        # FINAL PIPELINE TEARDOWN COALESCE
+        # Clean up client arrays and hand back control to the engine cleanly
+        # =====================================================================
         gl.glDisableClientState(gl.GL_VERTEX_ARRAY)
+        
+        gl.glActiveTexture(gl.GL_TEXTURE0)
         gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
+        gl.glUseProgram(0)
+        
         gl.glPopAttrib()
         gl.glPopMatrix()
+        
+        # Ensure core master shaders match the rest of the application viewport layers
+        pipeline_manager = getattr(glob, 'prop_manager_pipeline', None)
+        if pipeline_manager and hasattr(pipeline_manager, 'setShader'):
+            pipeline_manager.setShader()
+

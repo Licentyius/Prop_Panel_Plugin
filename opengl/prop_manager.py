@@ -164,20 +164,19 @@ class MultiPropManager():
                 gl.glDepthMask(gl.GL_TRUE)
                 gl.glDisable(gl.GL_BLEND)
 
-                # Ghost Mode Intercept Verification
+                # Ghost Mode Intercept Verification (Draws your true solid 3D .obj geometry cleanly)
                 mesh_vis = getattr(prop_data, 'is_mesh_visible', True)
                 if mesh_vis and hasattr(prop_data, 'mesh_reference') and getattr(prop_data.mesh_reference, 'render', None) is not None:
                     prop_data.mesh_reference.render.draw(final_mvp, campos, light_obj, False)
 
-                # ==================================
-                # 🛠️ THE MATERIAL DISCONNECT PLUG:
-                # ==================================
-                gl.glUseProgram(0)                     # Unbind the prop mesh's active shader program
-                gl.glBindTexture(gl.GL_TEXTURE_2D, 0)  # Unbind the prop mesh's texture layer
+                gl.glActiveTexture(gl.GL_TEXTURE0)
+                gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
+                gl.glUseProgram(0)                     # Clean context register states
                 
-                gl.glEnable(gl.GL_BLEND)
-                gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE) # Enforce glowing fire blending
-                gl.glDisable(gl.GL_LIGHTING)           # Protect particles from 3D shadows
+                gl.glEnable(gl.GL_DEPTH_TEST)
+                gl.glDepthMask(gl.GL_TRUE)
+                gl.glDisable(gl.GL_BLEND)
+
 
                 # Route draw commands directly to the core emitter methods cleanly
                 if prop_data.emitter and getattr(prop_data, 'is_emitting', True):

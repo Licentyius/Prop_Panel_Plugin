@@ -49,7 +49,7 @@
         "parent_bone": "hand_R",
         "particle_count": 450,
         "max_particles": 450,
-        "particle_texture": "data/props/particles/flame.png",
+        "particle_texture": "data/props/particles/sunspots.png",
         "particle_draw_size": 24.0,
         "color_rgba": [
             1.0,
@@ -83,10 +83,10 @@
         "use_parenting": true,
         "default_bone": "hand_R",
         "parent_bone": "hand_R",
-        "particle_count": 350,
+        "particle_count": 650,
         "max_particles": 500,
-        "particle_texture": "data/props/particles/flame.png",
-        "particle_draw_size": 14.0,
+        "particle_texture": "data/props/particles/energyball.png",
+        "particle_draw_size": 82.0,
         "color_rgba": [
             1.0,
             1.0,
@@ -142,6 +142,31 @@
             }
         }
     },
+    "shower01": {
+    "name": "Water Shower Stream",
+    "type": "EMITTER",
+    "object_type": "EMITTER",
+    "mesh_path": "data/props/ball.obj",
+    "is_mesh_visible": true,
+    "is_emitting": true,
+    
+    "emitter_mode": "TEXTURED_SPRITES",
+    "particle_texture": "data/props/particles/water_drop.png",
+    "particle_draw_size": 32.0,
+    "particle_color": [0.4, 0.7, 1.0, 0.8],
+    
+    "// 🟢 UNWRAPPED ROOT LEVEL PHYSICS": "Pushed to the root so your emitter constructor can read them natively!",
+    "particle_count": 450,
+    "max_particles": 450,
+    "gravity": [0.0, -9.81, 0.0],
+    "spread_direction": [0.0, -1.0, 0.0],
+    "spread_angle": 15.0,
+    "speed_min": 1.5,
+    "speed_max": 3.0,
+    
+    "default_bone": "hand_R",
+    "use_parenting": false
+    },
     "torch_01": {
         "id": "torch_01",
         "name": "Fire Magic Torch",
@@ -157,7 +182,7 @@
         "parent_bone": "hand_R",
         "particle_count": 300,
         "max_particles": 500,
-        "particle_texture": "data/props/particles/flame.png",
+        "particle_texture": "data/props/particles/sunspots.png",
         "particle_draw_size": 60.0,
         "color_rgba": [
             1.0,
@@ -193,7 +218,7 @@
         "default_bone": "hand_R",
         "parent_bone": "hand_R",
         "particle_count": 1,
-        "max_particles": 2,
+        "max_particles": 5,
         "particle_texture": "data/props/particles/sparkle.png",
         "particle_draw_size": 180.0,
         "color_rgba": [
