@@ -1,5 +1,5 @@
 """
-Prop Module v2.4 (Unified Edition V2).
+Prop Module v2.5 (Unified Edition V2).
 Part of the MakeHuman 2 Project contributed by Elvaerwyn_MH2 2026.
 """
 
@@ -145,8 +145,248 @@ class PropMesh():
         return self.orig_name
 
     def load(self, path):
+        """Dynamically decodes both planar and interleaved binary .glb containers by safely extracting attributes according to their byte strides and absolute filename string scalars."""
         base_asset_directory = os.path.dirname(os.path.abspath(path))
         
+        # =====================================================================
+        # 1. New needs work THE GLB PARSING PIPELINE
+        # Directly parses raw binary layouts and maps parameters natively!
+        # =====================================================================
+        if path.lower().endswith('.glb') or path.lower().endswith('.gltf'):
+            try:
+                import struct
+                import json
+                print(f"[Prop Studio Engine] Unpacking precision container via approved runtime: {path}")
+                
+                with open(path, 'rb') as f:
+                    magic, version, total_length = struct.unpack('<4sII', f.read(12))
+                    if magic != b'glTF':
+                        return False, "Selected container is not a valid binary glTF blob structure."
+                        
+                    chunk0_len, chunk0_type = struct.unpack('<II', f.read(8))
+                    if chunk0_type != 0x4E4F534A:
+                        return False, "Missing mandatory structural descriptor indices."
+                    
+                    gltf_data = json.loads(f.read(chunk0_len).decode('utf-8'))
+                    chunk1_len, chunk1_type = struct.unpack('<II', f.read(8))
+                    raw_binary_buffer = f.read(chunk1_len)
+
+                meshes = gltf_data.get('meshes', [])
+                if not meshes:
+                    return False, "Empty asset geometry block boundaries."
+                    
+                accessors = gltf_data.get('accessors', [])
+                buffer_views = gltf_data.get('bufferViews', [])
+                
+                all_coords = []
+                all_norms = []
+                all_uvs = []
+                all_indices = []
+                index_vertex_offset = 0
+
+                meshes_list = meshes if isinstance(meshes, list) else [meshes]
+                
+                for mesh_node in meshes_list:
+                    if not isinstance(mesh_node, dict):
+                        continue
+                        
+                    primitives_list = mesh_node.get('primitives', [])
+                    for primitive in primitives_list:
+                        if not isinstance(primitive, dict):
+                            continue
+                            
+                        attributes = primitive.get('attributes', {})
+                        if 'POSITION' not in attributes:
+                            continue
+                            
+                        # Unpack Vertex Positions (32-bit floats, 3 components per element)
+                        pos_accessor = accessors[attributes['POSITION']]
+                        pos_count = int(pos_accessor['count'])
+                        pos_view = buffer_views[pos_accessor['bufferView']]
+                        pos_stride = int(pos_view.get('byteStride', 12))
+                        pos_offset = int(pos_view.get('byteOffset', 0)) + int(pos_accessor.get('byteOffset', 0))
+                        
+                        raw_pos_segment = raw_binary_buffer[pos_offset:pos_offset + (pos_count * pos_stride)]
+                        if pos_stride == 12:
+                            coords_np = np.frombuffer(raw_pos_segment, dtype=np.float32).reshape(-1, 3).copy()
+                        else:
+                            flat_pos = np.frombuffer(raw_pos_segment, dtype=np.float32)
+                            stride_floats = pos_stride // 4
+                            coords_np = np.array([flat_pos[i*stride_floats : i*stride_floats+3] for i in range(pos_count)], dtype=np.float32)
+                        
+                        all_coords.append(coords_np)
+                        local_vertex_count = len(coords_np)
+                        
+                        # Unpack Surface Normals (32-bit floats, 3 components per element)
+                        if 'NORMAL' in attributes:
+                            norm_accessor = accessors[attributes['NORMAL']]
+                            norm_count = int(norm_accessor['count'])
+                            norm_view = buffer_views[norm_accessor['bufferView']]
+                            norm_stride = int(norm_view.get('byteStride', 12))
+                            norm_offset = int(norm_view.get('byteOffset', 0)) + int(norm_accessor.get('byteOffset', 0))
+                            
+                            raw_norm_segment = raw_binary_buffer[norm_offset:norm_offset + (norm_count * norm_stride)]
+                            if norm_stride == 12:
+                                norms_np = np.frombuffer(raw_norm_segment, dtype=np.float32).reshape(-1, 3).copy()
+                            else:
+                                flat_norms = np.frombuffer(raw_norm_segment, dtype=np.float32)
+                                stride_floats = norm_stride // 4
+                                norms_np = np.array([flat_norms[i*stride_floats : i*stride_floats+3] for i in range(norm_count)], dtype=np.float32)
+                            all_norms.append(norms_np)
+                        else:
+                            all_norms.append(np.zeros_like(coords_np))
+
+                        # Unpack UV Mapping Coordinates (32-bit floats, 2 components per element)
+                        if 'TEXCOORD_0' in attributes:
+                            uv_accessor = accessors[attributes['TEXCOORD_0']]
+                            uv_count = int(uv_accessor['count'])
+                            uv_view = buffer_views[uv_accessor['bufferView']]
+                            uv_stride = int(uv_view.get('byteStride', 8))
+                            uv_offset = int(uv_view.get('byteOffset', 0)) + int(uv_accessor.get('byteOffset', 0))
+                            
+                            raw_uv_segment = raw_binary_buffer[uv_offset:uv_offset + (uv_count * uv_stride)]
+                            if uv_stride == 8:
+                                uvs_np = np.frombuffer(raw_uv_segment, dtype=np.float32).reshape(-1, 2).copy()
+                            else:
+                                flat_uvs = np.frombuffer(raw_uv_segment, dtype=np.float32)
+                                stride_floats = uv_stride // 4
+                                uvs_np = np.array([flat_uvs[i*stride_floats : i*stride_floats+2] for i in range(uv_count)], dtype=np.float32)
+                            all_uvs.append(uvs_np)
+                        else:
+                            all_uvs.append(np.zeros((local_vertex_count, 2), dtype=np.float32))
+
+                        # Unpack Triangle Indices Buffer (uint16 or uint32 scalars)
+                        if 'indices' in primitive:
+                            ind_accessor = accessors[primitive['indices']]
+                            ind_count = int(ind_accessor['count'])
+                            ind_view = buffer_views[ind_accessor['bufferView']]
+                            ind_offset = int(ind_view.get('byteOffset', 0)) + int(ind_accessor.get('byteOffset', 0))
+                            ind_length = int(ind_view['byteLength'])
+                            
+                            idx_dtype = np.uint16 if ind_accessor.get('componentType') == 5123 else np.uint32
+                            flat_indices = np.frombuffer(raw_binary_buffer[ind_offset:ind_offset+ind_length], dtype=idx_dtype)
+                            all_indices.append(flat_indices[:ind_count].astype(np.uint32) + index_vertex_offset)
+                        else:
+                            all_indices.append(np.arange(local_vertex_count, dtype=np.uint32) + index_vertex_offset)
+                            
+                        index_vertex_offset += local_vertex_count
+
+                if not all_coords:
+                    return False, "No valid geometry primitive buffers could be loaded."
+
+                # Combine mesh vectors using NumPy links
+                self.obj.gl_coord = np.concatenate(all_coords, axis=0)
+                self.obj.gl_norm = np.concatenate(all_norms, axis=0)
+                self.obj.gl_uvcoord = np.concatenate(all_uvs, axis=0)
+                self.obj.gl_icoord = np.concatenate(all_indices, axis=0)
+
+                self.orig_name = os.path.basename(path)
+
+                # The trailing comma unpacker forces a pure filename text string scalar
+                clean_name_base, _ = os.path.splitext(self.orig_name)
+                self.obj.setName("props_glb_" + clean_name_base)
+                
+                # Default Material Structure with explicit method interceptors
+                class CallableFloat(float):
+                    def __call__(self, *args, **kwargs): return 1.0
+                    def __sub__(self, other): return float(self) - float(other)
+                    def __rsub__(self, other): return float(other) - float(self)
+                    def bind(self, *args, **kwargs): pass
+
+                class FallbackGLBMaterial:
+                    def __init__(self, name):
+                        self.name = name
+                        self.diffuseColor = [0.8, 0.8, 0.8]
+                        self.ambientColor = [0.2, 0.2, 0.2]
+                        self.specularColor = [0.5, 0.5, 0.5]
+                        self.shininess = CallableFloat(25.0)
+                        self.opacity = CallableFloat(1.0)
+                        self.colorate = CallableFloat(1.0)
+                        self.texture = self
+                        self.tex_diffuse = self
+                        
+                    def loadDiffuse(self, *args, **kwargs): pass
+                    def bind(self, *args, **kwargs): pass
+                    def __getattr__(self, name): return CallableFloat(1.0)
+
+                native_mh2_mat = FallbackGLBMaterial(clean_name_base + "_mat")
+                
+                materials_list = gltf_data.get('materials', [])
+                fallback_color = [0.8, 0.8, 0.8]
+                if materials_list and isinstance(materials_list, list) and len(materials_list) > 0:
+                    mat_dict = materials_list[0]
+                    pbr = mat_dict.get('pbrMetallicRoughness', {})
+                    base_color_factor = pbr.get('baseColorFactor', [])
+                    if len(base_color_factor) >= 3:
+                        fallback_color = [float(c) for c in base_color_factor[:3]]
+                        
+                native_mh2_mat.diffuseColor = fallback_color
+                native_mh2_mat.ambientColor = [c * 0.2 for c in fallback_color]
+                
+                self.obj.material = native_mh2_mat
+                self.obj.texture = native_mh2_mat
+                self.obj.tex_diffuse = native_mh2_mat
+                self.obj.has_texture = False
+
+                num_vertices = len(self.obj.gl_coord)
+                self.obj.prim = len(self.obj.gl_icoord) // 3
+                self.obj.n_verts = num_vertices
+                self.obj.n_fverts = num_vertices
+
+                # Dynamic custom .mh2mat configuration file linkage check valve
+                mh2_material_file = os.path.normpath(os.path.join(base_asset_directory, f"{clean_name_base}.mh2mat")).replace("\\", "/")
+                if os.path.exists(mh2_material_file):
+                    try:
+                        self.obj.loadMaterial(mh2_material_file)
+                        print(f"[Prop Studio Engine] Successfully bound native MH2 material file: {mh2_material_file}")
+                    except Exception as mat_ex:
+                        print(f"[Prop Studio Warning] Native material pass fell back to default shader context: {mat_ex}")
+
+                # =====================================================================
+                # OMNI-SHIELD VALVE (PUMPING SUB-PRIMITIVES & GROUPS)needs attention
+                # Forcefully binds material properties across all parts 
+                # =====================================================================
+                active_material = getattr(self.obj, 'material', native_mh2_mat)
+                if not active_material:
+                    active_material = native_mh2_mat
+                    
+                if not hasattr(active_material, 'texture') or getattr(active_material, 'texture') is None:
+                    active_material.texture = native_mh2_mat
+                if not hasattr(active_material, 'tex_diffuse') or getattr(active_material, 'tex_diffuse') is None:
+                    active_material.tex_diffuse = native_mh2_mat
+                if not hasattr(active_material, 'bind'):
+                    active_material.bind = lambda *args, **kwargs: None
+
+                if hasattr(self.obj, 'primitives') and self.obj.primitives:
+                    for sub_prim in self.obj.primitives:
+                        if sub_prim:
+                            sub_prim.material = active_material
+                            sub_prim.texture = getattr(active_material, 'texture', native_mh2_mat)
+                            sub_prim.tex_diffuse = getattr(active_material, 'tex_diffuse', native_mh2_mat)
+                            
+                if hasattr(self.obj, 'groups') and self.obj.groups:
+                    for group_node in self.obj.groups:
+                        if group_node:
+                            group_node.material = active_material
+                            group_node.texture = getattr(active_material, 'texture', native_mh2_mat)
+                            if hasattr(group_node, 'tex_diffuse'):
+                                group_node.tex_diffuse = getattr(active_material, 'tex_diffuse', native_mh2_mat)
+
+                glbuffer = OpenGlBuffers()
+                glbuffer.GetBuffers(self.obj.gl_coord, self.obj.gl_norm, self.obj.gl_uvcoord)
+                self.render = RenderedObject(self.glob.openGLWindow, self.obj, None, glbuffer)
+                self.obj.openGL = self.render
+                
+                print(f"[Prop Studio Engine] Success: Native pure NumPy multi-mesh GLB extraction complete.")
+                return True, ""
+                
+            except Exception as glb_fault:
+                print(f"[Prop Studio Engine Error] Native binary decoding collapsed: {glb_fault}")
+                return False, f"Binary breakdown fault: {glb_fault}"
+
+        # ============================================
+        # 2. ORIGINAL LEGACY WAVEFRONT .OBJ FALLBACK 
+        # ============================================
         class DecoupledEnvSandboxProxy:
             def __init__(self, original_env):
                 self._original = original_env
@@ -1890,7 +2130,11 @@ class PropManagerPanel(MHGroupBox):
                 continue
                 
             for filename in os.listdir(target_dir):
-                if filename.lower().endswith('.obj'):
+
+                filename_lower = filename.lower()
+                if filename_lower.endswith('.obj') or filename_lower.endswith('.glb'):
+
+
                     base_name, _ = os.path.splitext(filename)
                     full_obj_path = os.path.normpath(os.path.join(target_dir, filename)).replace("\\", "/")
                     
@@ -1899,9 +2143,14 @@ class PropManagerPanel(MHGroupBox):
                     processed_obj_paths.add(full_obj_path)
                     
                     is_active = any(getattr(p, 'path', '') == full_obj_path for p in custom_pool)
-                    target_thumb = full_obj_path.replace(".obj", ".thumb")
+
+                    path_prefix, _ = os.path.splitext(full_obj_path)
+                    target_thumb = path_prefix + ".thumb"
+
                     
                     if not os.path.isfile(target_thumb) and sys_icon_dir:
+
+
                         placeholder_img = os.path.normpath(os.path.join(sys_icon_dir, "reset.png")).replace("\\", "/")
                         if os.path.isfile(placeholder_img):
                             try:
@@ -2614,23 +2863,28 @@ def initialize_prop_studio(app_reference, glob_reference, **kwargs):
         scanned_model_assets = {}
         for search_folder in [addon_props_dir, user_props_dir]:
             if os.path.isdir(search_folder):
+
                 for filename in os.listdir(search_folder):
-                    if filename.lower().endswith('.obj'):
+                    filename_lower = filename.lower()
+                    if filename_lower.endswith('.obj') or filename_lower.endswith('.glb'):
                         base_name, _ = os.path.splitext(filename)
+                        
                         full_obj_path = os.path.join(search_folder, filename).replace("\\", "/")
+                        
+                        # Check for native .thumb tracks first before falling back to .png
                         thumb_path = os.path.join(search_folder, f"{base_name}.thumb").replace("\\", "/")
                         png_path = os.path.join(search_folder, f"{base_name}.png").replace("\\", "/")
                         
-                        active_icon_path = ""
-                        if os.path.isfile(thumb_path): 
+                        if os.path.isfile(thumb_path):
                             active_icon_path = thumb_path
-                        elif os.path.isfile(png_path): 
+                        elif os.path.isfile(png_path):
                             active_icon_path = png_path
                         else:
                             active_icon_path = os.path.normpath(os.path.join(env.path_sysicon, "reset.png")).replace("\\", "/")
-
+                        
                         if base_name not in scanned_model_assets:
                             scanned_model_assets[base_name] = {"path": full_obj_path, "icon": active_icon_path}
+
 
         for name, data_pack in scanned_model_assets.items():
             grid_item = QListWidgetItem()
@@ -2642,6 +2896,7 @@ def initialize_prop_studio(app_reference, glob_reference, **kwargs):
             local_grid_widget.addItem(grid_item)
 
         asset_catalog_tabs.addTab(local_grid_widget, "Asset Browser")
+
 
         # COLUMN 2 & 3: MOUNT CONTROLLER SIDEBARS
         left_scroll = QScrollArea()
@@ -2679,7 +2934,7 @@ def initialize_prop_studio(app_reference, glob_reference, **kwargs):
         master_dock_layout.addWidget(workspace_splitter)
 
         def handle_local_grid_click(item):
-            if not item or not prop_manager_widget: 
+            if not item: 
                 return
             asset_name = item.text()
             if asset_name in scanned_model_assets:
@@ -2693,7 +2948,7 @@ def initialize_prop_studio(app_reference, glob_reference, **kwargs):
                     path=file_target, 
                     filename=file_target, 
                     folder="props",
-                    uuid=asset_name,  # Force it to pass the true dictionary lookups key
+                    uuid=asset_name,  
                     subfolder=None, 
                     thumbfile=thumb_target, 
                     author="User", 
@@ -2701,8 +2956,15 @@ def initialize_prop_studio(app_reference, glob_reference, **kwargs):
                 )
                 print(f"[Prop Studio Core] Deploying scene initialization for: {file_target}")
                 
-                # ROUTE IT THROUGH THE REAL MESH BUFFER ALLOCATOR
-                prop_manager_widget.add_prop_to_scene(mock_asset)
+
+                if 'prop_manager_widget' in locals() and prop_manager_widget and hasattr(prop_manager_widget, 'add_prop_to_scene'):
+                    prop_manager_widget.add_prop_to_scene(mock_asset)
+                elif hasattr(main_window, 'prop_manager') and main_window.prop_manager and hasattr(main_window.prop_manager, 'add_prop_to_scene'):
+                    main_window.prop_manager.add_prop_to_scene(mock_asset)
+                else:
+                    # Final safety fallback straight to your left panel's dedicated deployment pass
+                    if 'left_panel_widget' in locals() and left_panel_widget and hasattr(left_panel_widget, 'deploy_scene_asset'):
+                        left_panel_widget.deploy_scene_asset(asset_name)
 
         try:
             local_grid_widget.itemDoubleClicked.disconnect()
