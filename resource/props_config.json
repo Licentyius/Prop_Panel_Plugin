@@ -142,7 +142,7 @@
             }
         }
     },
-    "shower01": {
+    "Water Shower Stream": {
     "name": "Water Shower Stream",
     "type": "EMITTER",
     "object_type": "EMITTER",
@@ -155,7 +155,7 @@
     "particle_draw_size": 32.0,
     "particle_color": [0.4, 0.7, 1.0, 0.8],
     
-    "// 🟢 UNWRAPPED ROOT LEVEL PHYSICS": "Pushed to the root so your emitter constructor can read them natively!",
+    "// 🟢 UNWRAPPED ROOT LEVEL PHYSICS": "Pushed to the root so the emitter constructor can read them natively!",
     "particle_count": 450,
     "max_particles": 450,
     "gravity": [0.0, -9.81, 0.0],

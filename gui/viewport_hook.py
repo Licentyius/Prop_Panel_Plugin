@@ -1,5 +1,5 @@
 """
-Viewport_hook for Prop module.
+Viewport_hook for Prop module. V1.1
 Part of the MakeHuman 2 Project contributed by Elvaerwyn_MH2 2026.
 """
 
@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QWidget, QMessageBox
 
 def perform_background_hardware_link(glob_reference, main_window, prop_manager_widget):
     """
-    Bind the own draw function to  MakeHuman2 openGL draw queue using library function
+    Bind the own draw function to MakeHuman2 openGL draw queue using library function
     registerDrawFunction
     """
 
@@ -26,8 +26,16 @@ def perform_background_hardware_link(glob_reference, main_window, prop_manager_w
                     if hasattr(prop_manager_widget, 'prop_fsm') and prop_manager_widget.prop_fsm:
                         prop_manager_widget.prop_fsm.update_machine(active_focus_prop.name)
 
-                # called in propmanager
+                # 1. First, draw the solid meshes and compute transform matrices rigidly
                 propman_pipeline.drawProps(proj_view_matrix, campos, parent.light)
+
+                # ===========================
+                # GRAPHICS DATA LINK PORTAL:
+                # ===========================
+                custom_props = getattr(glob_reference, 'custom_props_list', [])
+                if custom_props:
+                    from ..opengl.prop_renderer import inject_particle_gl_draw_pass
+                    inject_particle_gl_draw_pass(glob_reference, custom_props)
 
             except Exception as render_err:
                 print(f"[Prop Studio Debug] Scene queue execution crash: {render_err}")
@@ -36,9 +44,9 @@ def perform_background_hardware_link(glob_reference, main_window, prop_manager_w
 
     print("[Prop Studio Core] draw function registered to MakeHuman2 openGL draw queue (PostDraw)!")
 
-    # =========================================================================
+    # ==========================================
     # DYNAMIC EXPORTER BAR INTERFACE INJECTION
-    # =========================================================================
+    # ==========================================
     try:
         export_view = None
         if hasattr(main_window, 'views') and "export" in main_window.views:
