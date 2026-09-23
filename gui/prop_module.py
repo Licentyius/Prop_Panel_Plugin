@@ -1,5 +1,5 @@
 """
-Prop Module v2.6a (Unified Edition V2).
+Prop Module v2.7 (Unified Edition V2).
 Part of the MakeHuman 2 Project contributed by Elvaerwyn_MH2 2026.
 """
 
@@ -509,6 +509,13 @@ class PropManLeftPanel(QWidget):
         header = self.inventory_table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         master_panel_flow.addWidget(self.inventory_table)
+
+        self.refresh_list_btn = QPushButton("🔄 Refresh Available Props Catalog")
+ 
+        self.refresh_list_btn.clicked.connect(lambda: self.propman.global_pipeline_refresh() if self.propman else None)
+        
+        self.refresh_list_btn.setStyleSheet("background-color: #2b6ca3; color: white; font-weight: bold; padding: 6px; margin-top: 4px;")
+        master_panel_flow.addWidget(self.refresh_list_btn)
 
         cached_x = getattr(self.glob, 'last_cached_prop_x', 0.0)
         cached_z = getattr(self.glob, 'last_cached_prop_z', 0.0)
@@ -2250,10 +2257,57 @@ class PropManagerPanel(MHGroupBox):
         return data
 
     def global_pipeline_refresh(self):
-        """Forces lists, directory arrays, and viewport renders to sync up."""
+        """Forces lists, directory arrays, and viewport renders to sync up, updating visual grids."""
         self.refreshProps("props")
         self.sync_sidebar_list_display()
         self._trigger_viewport_redraw()
+
+        # THE CATALOG REBUILD PLUG:
+        # Find the active icon grid widget on the left panel and force it to clear and re-populate!
+        if hasattr(self, 'leftPanel') and self.leftPanel:
+            left = self.leftPanel
+            # Search the parent dock tree dynamically to find the active catalog list instance handle
+            global _standalone_studio_dock_instance
+            if _standalone_studio_dock_instance:
+                grid = _standalone_studio_dock_instance.findChild(QWidget, "prop_studio_nested_workspace_splitter")
+                # Look for your local_grid_widget instance inside the tab wrapper layout structures
+                from PySide6.QtWidgets import QListWidget
+                for child_list in _standalone_studio_dock_instance.findChildren(QListWidget):
+                    if child_list.viewMode() == QListWidget.IconMode:
+                        # Clear old items out of view and re-index the hard drive paths live!
+                        child_list.clear()
+                        
+                        # Re-scan the physical file pathways exactly like your deferred assembly step
+                        env = self.glob.env
+                        addon_props_dir = os.path.join(env.stdSysPath(), "props").replace("\\", "/")
+                        user_props_dir = os.path.normpath(os.path.join(env.stdUserPath(), "props")).replace("\\", "/")
+                        
+                        scanned_assets = {}
+                        for folder in [addon_props_dir, user_props_dir]:
+                            if os.path.isdir(folder):
+                                for filename in os.listdir(folder):
+                                    if filename.lower().endswith(('.obj', '.glb')):
+                                        base, _ = os.path.splitext(filename)
+                                        full_path = os.path.join(folder, filename).replace("\\", "/")
+                                        thumb_path = os.path.join(folder, f"{base}.thumb").replace("\\", "/")
+                                        png_path = os.path.join(folder, f"{base}.png").replace("\\", "/")
+                                        
+                                        icon_file = thumb_path if os.path.isfile(thumb_path) else (png_path if os.path.isfile(png_path) else os.path.normpath(os.path.join(env.path_sysicon, "reset.png")).replace("\\", "/"))
+                                        if base not in scanned_assets:
+                                            scanned_assets[base] = {"path": full_path, "icon": icon_file}
+                        
+                        from PySide6.QtGui import QIcon, QPixmap
+                        from PySide6.QtCore import QSize
+                        for name, data in scanned_assets.items():
+                            from PySide6.QtWidgets import QListWidgetItem
+                            grid_item = QListWidgetItem()
+                            grid_item.setText(name)
+                            grid_item.setTextAlignment(Qt.AlignCenter)
+                            grid_item.setSizeHint(QSize(100, 120))
+                            if os.path.isfile(data["icon"]):
+                                grid_item.setIcon(QIcon(QPixmap(data["icon"])))
+                            child_list.addItem(grid_item)
+
 
     def find_prop_by_name(self, name):
         """Looks up an active prop instance by its string identifier name case-insensitively."""
