@@ -694,22 +694,40 @@ class PropManLeftPanel(QWidget):
             self.deploy_scene_asset(true_id)
 
     def deploy_scene_asset(self, prop_id_key):
-        """Loads items dynamically by matching manifest parameters directly to disk files, handling pure emitters cleanly."""
-        manifest = load_props_manifest()
+        """Loads items dynamically. Auto-generates fully functional defaults if an asset is missing from the master JSON catalog!"""
+        manifest = {}
+        try:
+            from mh2_official_tools.prop_panel.core.json_manager import load_props_manifest
+            manifest = load_props_manifest()
+        except Exception:
+            pass
         
+        # DECOUPLING PASS: If the asset isn't in the JSON file, auto-generate safe running defaults!
         asset_profile = manifest.get(prop_id_key, {})
         if not asset_profile:
-            print(f"[Prop Studio Error] Profile key '{prop_id_key}' was missing from the JSON file configurations.")
-            return False
+            print(f"[Prop Library] Notice: '{prop_id_key}' missing from master index. Auto-generating dynamic profile runtime tracks...")
+            asset_profile = {
+                "name": str(prop_id_key).replace("_", " ").title(),
+                "type": "EMITTER" if "emitter" in str(prop_id_key).lower() or "shower" in str(prop_id_key).lower() or "torch" in str(prop_id_key).lower() else "STATIC",
+                "mesh_path": f"data/props/{prop_id_key}.obj",
+                "is_mesh_visible": True,
+                "is_emitting": True,
+                "emitter_mode": "TEXTURED_SPRITES",
+                "max_particles": 300,
+                "particle_draw_size": 16.0,
+                "particle_texture": "PLAIN",
+                "particle_color": [1.0, 0.5, 0.0, 1.0],
+                "default_bone": "hand_R"
+            }
         
         prop_name = asset_profile.get("name", str(prop_id_key))
         prop_type = str(asset_profile.get("type", asset_profile.get("object_type", "STATIC"))).upper().strip()
-        raw_mesh_path = asset_profile.get("mesh_path", "data/props/ball.obj")
+        raw_mesh_path = asset_profile.get("mesh_path", f"data/props/{prop_id_key}.obj")
         
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         full_obj_path = os.path.normpath(os.path.join(base_dir, raw_mesh_path)).replace("\\", "/")
 
-        print(f"[Prop Studio Core] Deploying scene initialization for manifest key: {prop_id_key}")
+        print(f"[Prop Studio Core] Deploying scene initialization for: {prop_id_key}")
         
         new_studio_asset = PropObject(prop_name, self.glob)
         new_studio_asset.prop_id = str(prop_id_key).strip().lower()
@@ -718,7 +736,6 @@ class PropManLeftPanel(QWidget):
         new_studio_asset.object_type = prop_type
         new_studio_asset.type = prop_type
         
-        # Route manifest parameters straight out of the JSON configurations
         new_studio_asset.is_mesh_visible = bool(asset_profile.get("is_mesh_visible", True))
         new_studio_asset.visible = new_studio_asset.is_mesh_visible
         new_studio_asset.is_emitting = bool(asset_profile.get("is_emitting", True))
@@ -733,7 +750,6 @@ class PropManLeftPanel(QWidget):
         new_studio_asset.use_parenting = True if prop_type == "EMITTER" else False
         new_studio_asset.position = np.array([0.0, 0.814, 0.0], dtype=np.float64)
         
-        # CRITICAL TRACK FIX: Ensure mesh_reference is explicitly initialized as None so it passes validation loops
         new_studio_asset.mesh_reference = None
 
         pm = PropMesh(self.glob)
@@ -751,13 +767,13 @@ class PropManLeftPanel(QWidget):
             if hasattr(self.glob, 'prop_manager_pipeline') and self.glob.prop_manager_pipeline:
                 self.glob.prop_manager_pipeline.registerProp(prop_name, new_studio_asset.obj, parent_bone=new_studio_asset.parent_bone, relative_transform=t_struct)
         else:
+            # Fallback path cleanly initializes standalone or missing mesh items without error blocks!
             if prop_type == "EMITTER":
-                # Use a clean native emitter class instance to provide valid properties without mesh dependencies
                 new_studio_asset.emitter = MH2LiveEmitterProp(self.glob, new_studio_asset.prop_id, asset_profile)
                 new_studio_asset.emitter.emitter_mode = new_studio_asset.emitter_mode
                 new_studio_asset.emitter.max_particles = new_studio_asset.max_particles
                 
-                # Assign an invisible dummy object so the master scene pipeline tracks it cleanly
+                from obj3d.object3d import object3d
                 virtual_proxy = object3d(self.glob, None, "pure_emitter_proxy")
                 virtual_proxy.visible = False
                 new_studio_asset.obj = virtual_proxy
@@ -1765,24 +1781,24 @@ class PropManagerPanel(MHGroupBox):
     # Natively mutates physics vectors on the fly!
     # =============================================
     def update_mixer_gravity_y(self, value):
-        """Live balances gravity weight up or down on the fly inside index 1 of the vector list array."""
+        """Live updates the vertical jet vector inside index 1 of the gravity list array cleanly."""
         if self.current_prop and not self.is_updating_ui:
             if hasattr(self.current_prop, 'emitter') and self.current_prop.emitter:
                 emitter = self.current_prop.emitter
                 
-                # Safeguard: Force the list layout to re-initialize safely if corrupted or flattened
+                # Check for list array types before indexing parameters
                 if not hasattr(emitter, 'gravity') or not isinstance(emitter.gravity, list) or len(emitter.gravity) < 3:
                     emitter.gravity = [0.0, -2.5, 0.0]
                 
-                # THE SYNC PLUG: Modify index 1 (Y-Axis) explicitly to keep the list structure alive!
+                # DIRECT PASS: Overwrite index 1 explicitly to protect your variable arrays!
                 emitter.gravity[1] = float(value)
                 
                 prop_id = getattr(self.current_prop, 'prop_id', getattr(self.current_prop, 'name', 'ball')).strip().lower()
-                print(f"[Mixer EQ] Vertical vector adjusted to: {value} m/s² for: {prop_id}")
+                print(f"[Mixer EQ Link] Vertical force updated to: {value} m/s² for: {prop_id}")
                 self._trigger_viewport_redraw()
 
     def update_mixer_gravity_x(self, value):
-        """Live skews particle trajectories sideways on the fly inside index 0 of the vector list array."""
+        """Live updates the crosswind drift vector inside index 0 of the gravity list array cleanly."""
         if self.current_prop and not self.is_updating_ui:
             if hasattr(self.current_prop, 'emitter') and self.current_prop.emitter:
                 emitter = self.current_prop.emitter
@@ -1790,11 +1806,11 @@ class PropManagerPanel(MHGroupBox):
                 if not hasattr(emitter, 'gravity') or not isinstance(emitter.gravity, list) or len(emitter.gravity) < 3:
                     emitter.gravity = [0.0, -2.5, 0.0]
                 
-                # THE SYNC PLUG: Modify index 0 (X-Axis) explicitly to keep the list structure alive!
+                #DIRECT PASS: Overwrite index 0 explicitly to protect your variable arrays!
                 emitter.gravity[0] = float(value)
                 
                 prop_id = getattr(self.current_prop, 'prop_id', getattr(self.current_prop, 'name', 'ball')).strip().lower()
-                print(f"[Mixer EQ] Crosswind vector adjusted to: {value} m/s² for: {prop_id}")
+                print(f"[Mixer EQ Link] Horizontal force updated to: {value} m/s² for: {prop_id}")
                 self._trigger_viewport_redraw()
 
     def update_mixer_spread_angle(self, value):

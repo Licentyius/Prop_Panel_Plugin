@@ -15,7 +15,7 @@ class PrimitiveParticleEngine:
         self.last_update_tick = time.time()
 
     def tick_physics(self, active_props_list):
-        """Processes position updates and gravity drag on all active emitters dynamically without hardcoded fallback overrides."""
+        """Processes position updates dynamically, pulling variables right off the running object state instead of forcing rigid JSON disk lookups!"""
         current_time = time.time()
         raw_dt = current_time - self.last_update_tick
         
@@ -56,75 +56,45 @@ class PrimitiveParticleEngine:
                     native_list = origin_pos.tolist()
                 else:
                     native_list = list(origin_pos) if hasattr(origin_pos, '__iter__') else [origin_pos]
-                
                 for i in range(min(3, len(native_list))):
-                    item = native_list[i]
-                    if isinstance(item, (list, tuple, np.ndarray)) and len(item) > 0:
-                        flat_pos[i] = float(item[0])
-                    else:
-                        flat_pos[i] = float(item)
+                    flat_pos[i] = float(native_list[i])
             except Exception:
-                flat_pos = [0.0, 0.0, 0.0]
+                flat_pos = [0.0, 0.814, 0.0]
 
-            from mh2_official_tools.prop_panel.core.json_manager import load_props_manifest
-            manifest = load_props_manifest()
-            asset_config = manifest.get(prop_id, {})
-            physics_block = asset_config.get("physics", {})
-
+            # 🟢 PRIORITIZE RUNTIME OBJECT POOLS: 
+            # Completely skips file-dependency checks during physics passes! Reads straight from sliders.
             gx, gy, gz = 0.0, -2.5, 0.0
-            s_min, s_max = 1.8, 3.5
+            s_min, s_max = 1.5, 4.5
 
-            # Establish baseline falling physics defaults natively
-            gx = 0.0
-            gy = -2.5
-            gz = 0.0
-            s_min = 1.8
-            s_max = 3.5
-
-            if p_emitter and hasattr(prop, 'emitter') and prop.emitter:
-                # THE SYNC PLUG: Prioritize the flat list variable where the UI sliders write data!
-                # This instantly bridges the live Mixer EQ sliders to ANY current or future JSON asset dynamically.
-                live_grav = getattr(prop.emitter, 'gravity', None)
+            if p_emitter:
+                live_grav = getattr(p_emitter, 'gravity', None)
                 if isinstance(live_grav, (list, tuple, np.ndarray)) and len(live_grav) >= 3:
                     gx = float(live_grav[0])
                     gy = float(live_grav[1])
                     gz = float(live_grav[2])
-                else:
-                    # Original pass preserves the default nested JSON manifest layers cleanly if no slider is dragged
-                    if isinstance(physics_block, dict) and "gravity" in physics_block:
-                        grav_forces = physics_block.get("gravity", {})
-                        if isinstance(grav_forces, dict):
-                            gx = float(grav_forces.get("x", gx))
-                            gy = float(grav_forces.get("y", gy))
-                            gz = float(grav_forces.get("z", gz))
+                
+                # Check for direct speed attributes saved by your sliders
+                s_min = float(getattr(p_emitter, 'speed_min', s_min))
+                s_max = float(getattr(p_emitter, 'speed_max', s_max))
 
-                # Extract initial velocity parameters safely out of active configurations
-                if isinstance(physics_block, dict) and "initialSpeed" in physics_block:
-                    speed_limits = physics_block.get("initialSpeed", {})
-                    if isinstance(speed_limits, dict):
-                        s_min = float(speed_limits.get("min", s_min))
-                        s_max = float(speed_limits.get("max", s_max))
-
-
-            # 1. Spawn points utilizing the dynamic speed entries natively
+            # 1. Spawn points utilizing your dynamic speed limits natively
             if is_emitting and len(self.emitter_pools[prop_id]) < int(p_emitter.max_particles):
                 for _ in range(4): 
-                    y_speed = random.uniform(-s_max, -s_min) if gy < -5.0 else random.uniform(s_min, s_max)
-                    
+                    y_speed = random.uniform(s_min, s_max)
+                    if gy < -5.0:  # If high down-force is active, burst them outwards/downwards naturally
+                        y_speed = random.uniform(-s_max, -s_min)
+                        
                     self.emitter_pools[prop_id].append({
                         "pos": [float(flat_pos[0]), float(flat_pos[1]), float(flat_pos[2])],
                         "vel": np.array([random.uniform(-0.5, 0.5), y_speed, random.uniform(-0.5, 0.5)], dtype=np.float32),
                         "age": 0.0,
-                        "life": random.uniform(1.2, 2.5) if gy < -5.0 else random.uniform(0.6, 1.8)
+                        "life": random.uniform(0.6, 2.0)
                     })
 
             # 2. Iterate physics and apply gravity vectors dynamically
             for p in self.emitter_pools[prop_id]:
                 p["age"] += dt
-                p["pos"][0] += p["vel"][0] * dt  
-                p["pos"][1] += p["vel"][1] * dt  
-                p["pos"][2] += p["vel"][2] * dt  
-                
+                p["pos"] += p["vel"] * dt  
                 p["vel"][0] += gx * dt
                 p["vel"][1] += gy * dt
                 p["vel"][2] += gz * dt
@@ -132,11 +102,11 @@ class PrimitiveParticleEngine:
             # 3. Clean spent data components out of memory allocations
             self.emitter_pools[prop_id] = [p for p in self.emitter_pools[prop_id] if p["age"] < p["life"]]
 
-            # 4. UNIFIED TIMELINE EXPORT VALVE:
+            # 4. Flatten the coordinates directly for the shader pipeline
             flat_vertices = []
             for p in self.emitter_pools[prop_id]:
                 flat_vertices.extend([float(p["pos"][0]), float(p["pos"][1]), float(p["pos"][2])])
-            prop.emitter.particles = flat_vertices
+            p_emitter.particles = flat_vertices
 
 
     def extract_flat_vertex_array(self, prop_id):
