@@ -1,5 +1,5 @@
 ####
-## Room Map v2.0 
+## Room Map v2.2 (Decoupled Drag & Drop Enabled Edition)
 ## Part of the MakeHuman 2 Project contributed by Elvaerwyn_MH2 2026
 ####
 
@@ -11,8 +11,6 @@ import numpy as np
 class MHRoomLayoutMap(QWidget):
     coordinatesChanged = Signal(float, float)
     roomResized = Signal(float, float)
-    
-    # Signal fired ONLY when the user lets go of the mouse button to prevent thread overload cascades
     roomResizeFinalized = Signal(float, float)
 
     def __init__(self, parent=None, is_boundary_planner=False):
@@ -20,15 +18,18 @@ class MHRoomLayoutMap(QWidget):
         self.is_boundary_planner = is_boundary_planner
         self.parent_obj = None # Back-reference to panel for current selection highlight
         
-        # Explicitly configure robust back-trace safety pathways to tap into the parent state tree references
+        # Enable dropping capabilities on this widget window surface
+        self.setAcceptDrops(True)
+        
         if parent:
+            self.parent_panel_widget = parent
             self.glob = getattr(parent, 'glob', None)
             if self.glob is None and hasattr(parent, 'parent') and parent.parent:
                 self.glob = getattr(parent.parent, 'glob', None)
         else:
             self.glob = None
+            self.parent_panel_widget = None
             
-        # --- ENHANCED REAL ESTATE: Expanded layout footprint sizing boundaries ---
         self.setMinimumSize(QSize(360, 360))
         self.setMaximumSize(QSize(360, 360))
         
@@ -38,6 +39,147 @@ class MHRoomLayoutMap(QWidget):
         self.room_length = 8.0
         self.active_drag_mode = "NONE"
         self.is_dragging = False
+    # ==============================
+    # DRAG ENTER HOVER INTERCEPTORS
+    # ==============================
+    def dragEnterEvent(self, event):
+        """Forces the map canvas to welcome the incoming payload, instantly changing the red line circle into a drop cursor!"""
+        event.acceptProposedAction()
+
+    def dragMoveEvent(self, event):
+        """Maintains active acceptance as the mouse slides over the grid coordinates."""
+        event.acceptProposedAction()
+    # =================================
+    # DYNAMIC DROP POSITION CALCULATION
+    # =================================
+    def dropEvent(self, event):
+        """Builds a complete physical asset mock payload on drop, automatically routing to add_prop_to_scene natively!"""
+        event.acceptProposedAction()
+        
+        raw_text_payload = ""
+        mime = event.mimeData()
+        if mime.hasText():
+            raw_text_payload = mime.text().strip()
+        else:
+            raw_text_payload = event.source().currentItem().text().strip()
+
+        if not raw_text_payload:
+            return
+
+        if "| State:" in raw_text_payload:
+            prop_id_key = raw_text_payload.split("|")[0].replace("[O]", "").strip().lower()
+        else:
+            prop_id_key = raw_text_payload.replace("[O]", "").strip().lower()
+
+        # If it's a raw file path string, isolate the base name
+        import os
+        if "/" in prop_id_key or "\\" in prop_id_key:
+            base_filename = prop_id_key.replace("\\", "/").split("/")[-1]
+            prop_id_key, _ = os.path.splitext(base_filename)
+            prop_id_key = prop_id_key.strip().lower()
+
+        # THE TRANSLATION MATRIX VALVE: Map pixel hits back to 3D center meters!
+        w = self.width()
+        h = self.height()
+        center_x = w / 2.0
+        center_y = h / 2.0
+
+        mouse_pixel_pos = event.position()
+        pixel_x = mouse_pixel_pos.x()
+        pixel_y = mouse_pixel_pos.y()
+
+        scale_limit = 100.0 if self.is_boundary_planner else max(1.0, self.room_width)
+        z_scale_limit = 100.0 if self.is_boundary_planner else max(1.0, self.room_length)
+
+        scale_x = (w - 40) / scale_limit
+        scale_y = (h - 40) / z_scale_limit
+
+        world_x = (pixel_x - center_x) / scale_x
+        world_z = (pixel_y - center_y) / scale_y
+
+        final_world_x = round(world_x * 2.0) / 2.0
+        final_world_z = round(world_z * 2.0) / 2.0
+
+        half_w = self.room_width / 2.0
+        half_l = self.room_length / 2.0
+        final_world_x = max(-half_w, min(half_w, final_world_x))
+        final_world_z = max(-half_l, min(half_l, final_world_z))
+
+        print(f"[Grid Drop Zone] Deploying asset '{prop_id_key}' natively onto grid pos: X={final_world_x:.2f}, Z={final_world_z:.2f}")
+
+        # THE DIRECT SYSTEM MANAGER FETCH:
+        import sys
+        target_panel = getattr(sys, 'active_prop_studio_panel_address', None)
+        
+        # Fallback to verify cross-links if the left panel container was stored
+        manager_panel = None
+        if target_panel:
+            if target_panel.__class__.__name__ == "PropManagerPanel":
+                manager_panel = target_panel
+            else:
+                manager_panel = getattr(target_panel, 'propman', None)
+
+        if manager_panel and hasattr(manager_panel, 'add_prop_to_scene'):
+            # Discover file pathways dynamically matching the asset browser's exact scanner
+            if hasattr(self, 'glob') and self.glob:
+                env = self.glob.env
+            else:
+                from core.globenv import glob as mh2_glob
+                env = mh2_glob.env
+
+            addon_props_dir = os.path.join(env.stdSysPath(), "props").replace("\\", "/")
+            user_props_dir = os.path.normpath(os.path.join(env.stdUserPath(), "props")).replace("\\", "/")
+            
+            file_target = ""
+            thumb_target = ""
+            for folder in [addon_props_dir, user_props_dir]:
+                if os.path.isdir(folder):
+                    for filename in os.listdir(folder):
+                        base, ext = os.path.splitext(filename)
+                        if base.lower() == prop_id_key and ext.lower() in ['.obj', '.glb']:
+                            file_target = os.path.join(folder, filename).replace("\\", "/")
+                            thumb_target = os.path.join(folder, f"{base}.thumb").replace("\\", "/")
+                            break
+                if file_target:
+                    break
+
+            if not file_target:
+                # Absolute fallback route layout if loose file isn't matching folder lists
+                file_target = os.path.normpath(os.path.join(user_props_dir, f"{prop_id_key}.obj")).replace("\\", "/")
+                thumb_target = os.path.normpath(os.path.join(user_props_dir, f"{prop_id_key}.thumb")).replace("\\", "/")
+
+            # Assemble the identical data layout block structure required by add_prop_to_scene
+            from types import SimpleNamespace
+            mock_asset = SimpleNamespace(
+                name=prop_id_key.replace("_", " ").title(),
+                path=file_target,
+                filename=file_target,
+                folder="props",
+                uuid=prop_id_key,
+                subfolder=None,
+                thumbfile=thumb_target,
+                author="User",
+                tag=["user", prop_id_key]
+            )
+
+            # Fire the active pipeline spawner!
+            manager_panel.add_prop_to_scene(mock_asset)
+            
+            # Stamp coordinate positions and repaint the canvas fields instantly
+            active_prop = getattr(manager_panel, 'current_prop', None)
+            if active_prop:
+                active_prop.position = np.array([final_world_x, 0.814, final_world_z], dtype=np.float64)
+                if hasattr(manager_panel, 'update_prop'):
+                    manager_panel.update_prop()
+                if hasattr(manager_panel, 'setValueFromProp'):
+                    manager_panel.setValueFromProp(active_prop)
+
+            event.acceptProposedAction()
+        else:
+            print("[Grid Drop Error] Core application interface pipeline spawner could not be tracked.")
+            event.ignore()
+
+        self.update()
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -70,8 +212,8 @@ class MHRoomLayoutMap(QWidget):
         try:
             w = self.width()
             h = self.height()
-            center_x = w / 2
-            center_y = h / 2
+            center_x = w / 2.0
+            center_y = h / 2.0
             
             if hasattr(self, 'glob') and self.glob:
                 bc = getattr(self.glob, 'baseClass', None)
@@ -87,6 +229,7 @@ class MHRoomLayoutMap(QWidget):
             self.room_width = max(1.0, min(100.0, self.room_width))
             self.room_length = max(1.0, min(100.0, self.room_length))
 
+            # DYNAMIC FOOTPRINT CALCULATIONS:
             scale_x = (w - 40) / self.room_width
             scale_y = (h - 40) / self.room_length
 
@@ -166,6 +309,7 @@ class MHRoomLayoutMap(QWidget):
                     t_x0 = int(-shape_w / 2.0)
                     t_z0 = int(-shape_h / 2.0)
 
+                    # THE GEOMETRIC FOOTPRINT ENGINE: Evaluates name strings to map footprint blueprints!
                     if "chair" in prop_name_lower or "seat" in prop_name_lower or "stool" in prop_name_lower:
                         painter.drawEllipse(t_x0, t_z0, int(shape_w), int(shape_h))
                         painter.setBrush(Qt.NoBrush)
@@ -176,7 +320,19 @@ class MHRoomLayoutMap(QWidget):
                     elif "sofa" in prop_name_lower or "couch" in prop_name_lower:
                         painter.drawRect(t_x0, t_z0, int(shape_w), int(shape_h))
                         painter.drawLine(t_x0, int(t_z0 + shape_h*0.22), int(t_x0 + shape_w), int(t_z0 + shape_h*0.22))
+                    elif "ball" in prop_name_lower or "sphere" in prop_name_lower or "bubble" in prop_name_lower:
+                        painter.drawEllipse(t_x0, t_z0, int(shape_w), int(shape_h))
+                    elif "cone" in prop_name_lower or "triangle" in prop_name_lower:
+                        from PySide6.QtGui import QPolygonF
+                        from PySide6.QtCore import QPointF
+                        tri_points = QPolygonF([
+                            QPointF(0.0, t_z0),
+                            QPointF(t_x0 + shape_w, t_z0 + shape_h),
+                            QPointF(t_x0, t_z0 + shape_h)
+                        ])
+                        painter.drawPolygon(tri_points)
                     else:
+                        # Baseline fallback bounding rectangle blueprint for boxes or general assets
                         painter.drawRect(t_x0, t_z0, int(shape_w), int(shape_h))
                         painter.drawLine(t_x0, t_z0, int(t_x0 + shape_w), int(t_z0 + shape_h))
 
@@ -187,13 +343,12 @@ class MHRoomLayoutMap(QWidget):
                     painter.drawLine(0, int(-shape_h * 0.75), 4, int(-shape_h * 0.55))
                     painter.restore()
 
-                    # Draw the asset name text label right next to the bounding shape box
                     painter.setPen(QPen(QColor("#64748b"), 1))
                     painter.setFont(QFont("Arial", 7))
                     painter.drawText(int(obj_px_x + (shape_w/2) + 5), int(obj_px_z + 4), prop_name_lower)
 
             else:
-                # MAP WIDGET 2: RESTORED DARK SLATE COORDINATE COORD TRACKER OVERLAY
+                # MAP WIDGET 2: NORMAL SELECTION COORDINATE RE-SCALE PATH
                 painter.setBrush(QBrush(QColor("#18181b"))) 
                 painter.setPen(QPen(QColor("#3f3f46"), 2))
                 painter.drawRect(0, 0, w - 1, h - 1)
@@ -233,6 +388,7 @@ class MHRoomLayoutMap(QWidget):
             print(f"[MAP ENGINE EXCEPTION] Draw error loop: {e}")
         finally:
             painter.end()
+
 
     def mousePressEvent(self, event):
         if event.button() != Qt.LeftButton:
@@ -282,10 +438,10 @@ class MHRoomLayoutMap(QWidget):
     def process_unified_drag(self, pos):
         w = self.width()
         h = self.height()
-        center_x = w / 2
-        center_y = h / 2
-        max_staging_limit = 100.0
+        center_x = w / 2.0
+        center_y = h / 2.0
         
+        # Pull live structural dimensions from the core character canvas scene setup
         if self.glob:
             bc = getattr(self.glob, 'baseClass', None)
             if bc and hasattr(bc, 'scene') and bc.scene and hasattr(bc.scene, 'floorsize'):
@@ -297,11 +453,15 @@ class MHRoomLayoutMap(QWidget):
                     self.room_width = float(f_size)
                     self.room_length = float(f_size)
 
-        self.room_width = max(1.0, min(max_staging_limit, self.room_width))
-        self.room_length = max(1.0, min(max_staging_limit, self.room_length))
+        self.room_width = max(1.0, min(50.0, self.room_width))
+        self.room_length = max(1.0, min(50.0, self.room_length))
 
-        scale_x = (w - 40) / max_staging_limit
-        scale_y = (h - 40) / max_staging_limit
+        # RE-LINK THE BOUNDARY MATRIX: Use the real room dimensions to scale map selections!
+        scale_limit = 50.0 if self.is_boundary_planner else self.room_width
+        z_scale_limit = 50.0 if self.is_boundary_planner else self.room_length
+
+        scale_x = (w - 40) / scale_limit
+        scale_y = (h - 40) / z_scale_limit
 
         world_x = (pos.x() - center_x) / scale_x
         world_z = (pos.y() - center_y) / scale_y
@@ -321,7 +481,7 @@ class MHRoomLayoutMap(QWidget):
 
         if self.active_drag_mode == "WALL_WIDTH":
             computed_w = abs(world_x) * 2.0
-            self.room_width = max(1.0, min(max_staging_limit, round(computed_w * 2.0) / 2.0))
+            self.room_width = max(1.0, min(50.0, round(computed_w * 2.0) / 2.0))
             self.roomResized.emit(self.room_width, self.room_length)
             
             if self.glob and getattr(self.glob, 'baseClass', None):
@@ -343,7 +503,7 @@ class MHRoomLayoutMap(QWidget):
             
         elif self.active_drag_mode == "WALL_LENGTH":
             computed_l = abs(world_z) * 2.0
-            self.room_length = max(1.0, min(max_staging_limit, round(computed_l * 2.0) / 2.0))
+            self.room_length = max(1.0, min(50.0, round(computed_l * 2.0) / 2.0))
             self.roomResized.emit(self.room_width, self.room_length)
             
             if self.glob and getattr(self.glob, 'baseClass', None):
@@ -364,14 +524,8 @@ class MHRoomLayoutMap(QWidget):
                     bc.scene.update()
             
         elif self.active_drag_mode == "PROP":
-            local_scale_x = (w - 40) / self.room_width
-            local_scale_y = (h - 40) / self.room_length
-
-            true_world_x = (pos.x() - center_x) / local_scale_x
-            true_world_z = (pos.y() - center_y) / local_scale_y
-
-            snapped_prop_x = round(true_world_x * 2.0) / 2.0
-            snapped_prop_z = round(true_world_z * 2.0) / 2.0
+            snapped_prop_x = round(world_x * 2.0) / 2.0
+            snapped_prop_z = round(world_z * 2.0) / 2.0
             
             half_w = self.room_width / 2.0
             half_l = self.room_length / 2.0
@@ -381,5 +535,3 @@ class MHRoomLayoutMap(QWidget):
             self.coordinatesChanged.emit(self.prop_x, self.prop_z)
             
         self.update()
-
-

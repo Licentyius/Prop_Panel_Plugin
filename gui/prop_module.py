@@ -1,5 +1,5 @@
 """
-Prop Module v2.7 (Unified Edition V2).
+Prop Module v2.8 (Unified Edition V2).
 Part of the MakeHuman 2 Project contributed by Elvaerwyn_MH2 2026.
 """
 
@@ -1226,6 +1226,9 @@ class PropManagerPanel(MHGroupBox):
         self.parent = parent 
         self.glob = getattr(parent, 'glob', None)
 
+        import sys
+        sys.active_prop_studio_panel_address = self
+
         self.central_widget = getattr(parent, 'central_widget', getattr(parent, 'centralWidget', self))
         
         self.env = self.glob.env
@@ -1280,12 +1283,18 @@ class PropManagerPanel(MHGroupBox):
 
         # =====================================================================
         # THE LIVE PARTICLE EMITTER ATTACHMENT TRIGGER
-        # Instantly converts a flat STATIC mesh into a live particle system on the fly!
+        # Instantly converts a flat STATIC mesh into a live particle system on the fly
+        # Also Removes systems from live objects.
         # =====================================================================
         self.attach_fx_btn = QPushButton("✨ Add Particle System to Asset")
         self.attach_fx_btn.clicked.connect(self.attach_live_emitter_on_the_fly)
         self.attach_fx_btn.setStyleSheet("background-color: #A23D81; color: white; font-weight: bold; padding: 5px;")
         layout.addWidget(self.attach_fx_btn)
+
+        self.remove_fx_btn = QPushButton("❌ Remove Particle System from Asset")
+        self.remove_fx_btn.clicked.connect(self.remove_live_emitter_on_the_fly)
+        self.remove_fx_btn.setStyleSheet("background-color: #8b2500; color: white; font-weight: bold; padding: 5px;")
+        layout.addWidget(self.remove_fx_btn)
         # =====================================================================
 
         self.save_btn = QPushButton("Save Transform to JSON")
@@ -1534,6 +1543,36 @@ class PropManagerPanel(MHGroupBox):
             
         self._trigger_viewport_redraw()
         print(f"[Prop Studio UI] Success: Asset converted to live Emitter. Mixer channels active.")
+
+    def remove_live_emitter_on_the_fly(self):
+        """Natively strips the active particle emitter off a prop, reverting it cleanly to a static mesh."""
+        if not self.current_prop:
+            print("[Prop Studio Mixer] Stripping aborted: No active asset selected.")
+            return
+
+        print(f"[Prop Studio Core] Safely dismantling live particle engine from: {self.current_prop.name}")
+        
+        # 1. Clear out memory calculation arrays instantly from the backend thread pools
+        prop_id = getattr(self.current_prop, 'prop_id', getattr(self.current_prop, 'name', 'ball')).strip().lower()
+        from ..core.particle_engine import live_particle_system
+        if prop_id in live_particle_system.emitter_pools:
+            live_particle_system.emitter_pools[prop_id].clear()
+
+        # 2. Reset identity states back to raw static configurations
+        self.current_prop.object_type = "STATIC"
+        self.current_prop.type = "STATIC"
+        self.current_prop.is_emitting = False
+        self.current_prop.emitter = None
+
+        # 3. Unlink the handle tracking connection inside the active drawing manager
+        pipeline = getattr(self.glob, 'prop_manager_pipeline', None)
+        if pipeline and hasattr(pipeline, 'active_props') and self.current_prop.name in pipeline.active_props:
+            pipeline.active_props[self.current_prop.name]["emitter"] = None
+
+        # 4. Refresh layout panels and force an instant repaint pass
+        self.setCurrentProp(self.current_prop.name)
+        self.global_pipeline_refresh()
+        print(f"[Prop Studio UI] Success: Emitter dismantled. Asset reverted cleanly to standard 3D mesh.")
 
     def calculate_live_particle_physics_tick(self):
         """Merged System Heartbeat: Processes particle trajectory updates safely without duplicate overrides."""
@@ -1797,7 +1836,7 @@ class PropManagerPanel(MHGroupBox):
                 if not hasattr(emitter, 'gravity') or not isinstance(emitter.gravity, list) or len(emitter.gravity) < 3:
                     emitter.gravity = [0.0, -2.5, 0.0]
                 
-                # DIRECT PASS: Overwrite index 1 explicitly to protect your variable arrays!
+                # DIRECT PASS: Overwrite index 1 explicitly to protect the variable arrays!
                 emitter.gravity[1] = float(value)
                 
                 prop_id = getattr(self.current_prop, 'prop_id', getattr(self.current_prop, 'name', 'ball')).strip().lower()
@@ -1813,7 +1852,7 @@ class PropManagerPanel(MHGroupBox):
                 if not hasattr(emitter, 'gravity') or not isinstance(emitter.gravity, list) or len(emitter.gravity) < 3:
                     emitter.gravity = [0.0, -2.5, 0.0]
                 
-                #DIRECT PASS: Overwrite index 0 explicitly to protect your variable arrays!
+                # DIRECT PASS: Overwrite index 0 explicitly to protect the variable arrays!
                 emitter.gravity[0] = float(value)
                 
                 prop_id = getattr(self.current_prop, 'prop_id', getattr(self.current_prop, 'name', 'ball')).strip().lower()
@@ -2182,17 +2221,21 @@ class PropManagerPanel(MHGroupBox):
                 continue
                 
             for filename in os.listdir(target_dir):
-
                 filename_lower = filename.lower()
-                if filename_lower.endswith('.obj') or filename_lower.endswith('.glb'):
+                
+                # EXTENDED LINK: Check for .json files alongside the 3D geometry types!
+                if filename_lower.endswith('.obj') or filename_lower.endswith('.glb') or filename_lower.endswith('.json'):
+                    # Skip master metadata files so they don't leak into the model lists
+                    if filename_lower == "props_config.json":
+                        continue
 
-
-                    base_name, _ = os.path.splitext(filename)
+                    base_name, ext = os.path.splitext(filename)
                     full_obj_path = os.path.normpath(os.path.join(target_dir, filename)).replace("\\", "/")
                     
                     if full_obj_path in processed_obj_paths:
                         continue
                     processed_obj_paths.add(full_obj_path)
+
                     
                     is_active = any(getattr(p, 'path', '') == full_obj_path for p in custom_pool)
 
@@ -2270,14 +2313,14 @@ class PropManagerPanel(MHGroupBox):
             global _standalone_studio_dock_instance
             if _standalone_studio_dock_instance:
                 grid = _standalone_studio_dock_instance.findChild(QWidget, "prop_studio_nested_workspace_splitter")
-                # Look for your local_grid_widget instance inside the tab wrapper layout structures
+                # Look for the local_grid_widget instance inside the tab wrapper layout structures
                 from PySide6.QtWidgets import QListWidget
                 for child_list in _standalone_studio_dock_instance.findChildren(QListWidget):
                     if child_list.viewMode() == QListWidget.IconMode:
                         # Clear old items out of view and re-index the hard drive paths live!
                         child_list.clear()
                         
-                        # Re-scan the physical file pathways exactly like your deferred assembly step
+                        # Re-scan the physical file pathways
                         env = self.glob.env
                         addon_props_dir = os.path.join(env.stdSysPath(), "props").replace("\\", "/")
                         user_props_dir = os.path.normpath(os.path.join(env.stdUserPath(), "props")).replace("\\", "/")
@@ -2746,10 +2789,14 @@ def initialize_prop_studio(app_reference, glob_reference, **kwargs):
     left_control_panel = QWidget()
     left_layout = QVBoxLayout(left_control_panel)
     left_layout.setContentsMargins(6, 6, 6, 6)
-
     left_layout.addWidget(QLabel("<b>Available Studio Props:</b>"))
     prop_list_widget = QListWidget()
     prop_list_widget.setObjectName("prop_studio_asset_selector_list")
+    
+    # DYNAMIC DRAG TRIGGER: Turns the list items into active draggable sources!
+    prop_list_widget.setDragEnabled(True)
+    prop_list_widget.setDragDropMode(QListWidget.DragOnly)
+    
     left_layout.addWidget(prop_list_widget)
 
     emitter_context_group = MHGroupBox("Dynamic Emitter Modifiers")
@@ -2958,6 +3005,10 @@ def initialize_prop_studio(app_reference, glob_reference, **kwargs):
         local_grid_widget.setResizeMode(QListWidget.Adjust)
         local_grid_widget.setSpacing(8)
         local_grid_widget.setMovement(QListWidget.Static)
+        
+        # DYNAMIC DRAG TRIGGER: Enables mouse dragging on the icon browser tiles!
+        local_grid_widget.setDragEnabled(True)
+        local_grid_widget.setDragDropMode(QListWidget.DragOnly)
 
         scanned_model_assets = {}
         for search_folder in [addon_props_dir, user_props_dir]:
@@ -3015,6 +3066,7 @@ def initialize_prop_studio(app_reference, glob_reference, **kwargs):
         right_panel_layout = QVBoxLayout(right_container)
         
         prop_manager_widget = PropManagerPanel(parent=main_window)
+
         right_panel_layout.addWidget(prop_manager_widget)
         right_panel_layout.addStretch(1)
 
