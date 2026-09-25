@@ -1,6 +1,6 @@
 ######
 #
-# Prop Manager V2.6 (Fully Dynamic Unified Edition V1)Elvaerwyn_MH2 2026
+# Prop Manager V2.7a (Fully Dynamic Unified Edition V1)Elvaerwyn_MH2 2026
 # Cleaned
 #
 ######
@@ -164,10 +164,15 @@ class MultiPropManager():
                 gl.glDepthMask(gl.GL_TRUE)
                 gl.glDisable(gl.GL_BLEND)
 
-                # Ghost Mode Intercept Verification (Draws the true solid 3D .obj geometry cleanly)
+                # ===================================
+                # Ghost Mode Intercept Verification 
+                # ===================================
                 mesh_vis = getattr(prop_data, 'is_mesh_visible', True)
-                if mesh_vis and hasattr(prop_data, 'mesh_reference') and getattr(prop_data.mesh_reference, 'render', None) is not None:
-                    prop_data.mesh_reference.render.draw(final_mvp, campos, light_obj, False)
+
+                if mesh_vis and hasattr(prop_data, 'mesh_reference') and prop_data.mesh_reference:
+                    if hasattr(prop_data.mesh_reference, 'render') and prop_data.mesh_reference.render:
+                        prop_data.mesh_reference.render.draw(final_mvp, campos, light_obj, False)
+
 
                 gl.glActiveTexture(gl.GL_TEXTURE0)
                 gl.glBindTexture(gl.GL_TEXTURE_2D, 0)

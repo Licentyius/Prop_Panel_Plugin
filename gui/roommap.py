@@ -1,5 +1,5 @@
 ####
-## Room Map v2.2 (Decoupled Drag & Drop Enabled Edition)
+## Room Map v2.2a (Decoupled Drag & Drop Enabled Edition)
 ## Part of the MakeHuman 2 Project contributed by Elvaerwyn_MH2 2026
 ####
 
@@ -43,15 +43,15 @@ class MHRoomLayoutMap(QWidget):
     # DRAG ENTER HOVER INTERCEPTORS
     # ==============================
     def dragEnterEvent(self, event):
-        """Forces the map canvas to welcome the incoming payload, instantly changing the red line circle into a drop cursor!"""
+        """May Go Away Forces the map canvas to welcome the incoming payload, instantly changing the red line circle into a drop cursor!"""
         event.acceptProposedAction()
 
     def dragMoveEvent(self, event):
         """Maintains active acceptance as the mouse slides over the grid coordinates."""
         event.acceptProposedAction()
-    # =================================
-    # DYNAMIC DROP POSITION CALCULATION
-    # =================================
+    # ========================================
+    # DYNAMIC DROP POSITION CALCULATION(Mock)
+    # ========================================
     def dropEvent(self, event):
         """Builds a complete physical asset mock payload on drop, automatically routing to add_prop_to_scene natively!"""
         event.acceptProposedAction()
@@ -200,7 +200,7 @@ class MHRoomLayoutMap(QWidget):
             pass
 
     def set_room_dimensions(self, w, l):
-        """Updates the architectural floor plan wall sizes dynamically."""
+        """Attention Needed. Updates the architectural floor plan wall sizes dynamically."""
         self.room_width = max(1.0, min(30.0, float(w)))
         self.room_length = max(1.0, min(30.0, float(l)))
         self.update()
@@ -389,7 +389,6 @@ class MHRoomLayoutMap(QWidget):
         finally:
             painter.end()
 
-
     def mousePressEvent(self, event):
         if event.button() != Qt.LeftButton:
             return
@@ -535,3 +534,65 @@ class MHRoomLayoutMap(QWidget):
             self.coordinatesChanged.emit(self.prop_x, self.prop_z)
             
         self.update()
+
+    def contextMenuEvent(self, event):
+        """Spawns a native right-click pop-up menu under the cursor to delete props on the fly!"""
+        from PySide6.QtWidgets import QMenu
+        from PySide6.QtGui import QAction
+        
+        # 1. Fetch the active scene props list array out of the engine globals
+        custom_props = getattr(self.glob, 'custom_props_list', []) if self.glob else []
+        if not custom_props:
+            return
+
+        w = self.width()
+        h = self.height()
+        center_x = w / 2.0
+        center_y = h / 2.0
+        scale_x = (w - 40) / max(1.0, self.room_width)
+        scale_y = (h - 40) / max(1.0, self.room_length)
+
+        # Translate the cursor pixel click point back into absolute world meters
+        click_pos = event.pos()
+        click_world_x = (click_pos.x() - center_x) / scale_x
+        click_world_z = (click_pos.y() - center_y) / scale_y
+
+        clicked_prop = None
+        # Attention Needed Here. Find which prop is closest to the mouse cursor (within a 1.2 meter radius threshold)
+        for prop in custom_props:
+            if not prop: continue
+            p_pos = prop.position
+            px = float(p_pos[0]) if hasattr(p_pos, '__getitem__') and len(p_pos) > 0 else 0.0
+            pz = float(p_pos[2]) if hasattr(p_pos, '__getitem__') and len(p_pos) > 2 else 0.0
+            
+            distance = np.sqrt((click_world_x - px)**2 + (click_world_z - pz)**2)
+            if distance < 1.2:
+                clicked_prop = prop
+                break
+
+        if clicked_prop:
+            # 2. Build the visual popup context menu framework
+            menu = QMenu(self)
+            menu.setStyleSheet("""
+                QMenu { background-color: #27272a; color: white; border: 1px solid #3f3f46; padding: 4px; }
+                QMenu::item:selected { background-color: #a13d3d; color: white; }
+            """)
+            
+            remove_action = QAction(f"❌ Remove '{clicked_prop.name}' From Scene", self)
+            
+            def trigger_destruction():
+                print(f"[Context Menu] Purging asset from room buffers: {clicked_prop.name}")
+                import sys
+                manager_panel = getattr(sys, 'active_prop_studio_panel_address', None)
+                if manager_panel:
+                    manager_ref = manager_panel if manager_panel.__class__.__name__ == "PropManagerPanel" else getattr(manager_panel, 'propman', None)
+                    
+                    if manager_ref:
+                        # Set selection focus to the targeted item and execute the working remover pipeline!
+                        manager_ref.current_prop = clicked_prop
+                        manager_ref.remove_current_prop()
+                        self.update()
+
+            remove_action.triggered.connect(trigger_destruction)
+            menu.addAction(remove_action)
+            menu.exec(event.globalPos())

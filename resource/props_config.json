@@ -47,23 +47,29 @@
         "use_parenting": false,
         "default_bone": "None",
         "parent_bone": "None",
-        
-        "// SYSTEM KEY PROTOCOL MAP": "Maps directly to your live UI sliders and core generation properties!",
+        "// SYSTEM KEY PROTOCOL MAP": "Maps directly to live UI sliders and core generation properties!",
         "particle_count": 1000,
         "max_particles": 1000,
         "particle_draw_size": 20.0,
         "particle_texture": "data/props/particles/water_drop.png",
-        "color_rgba": [0.5, 0.7, 1.0, 0.6],
+        "color_rgba": [
+            0.5,
+            0.7,
+            1.0,
+            0.6
+        ],
         "transparent": true,
         "blend_mode": "NORMAL",
-        
-        "// PHYSICS KEY PROTOCOL MAP": "Maps directly to your background thread delta calculations loops!",
-        "spread_direction": [0.0, 1.0, 0.0],
+        "// PHYSICS KEY PROTOCOL MAP": "Maps directly to background thread delta calculations loops!",
+        "spread_direction": [
+            0.0,
+            1.0,
+            0.0
+        ],
         "spread_angle": 15.0,
         "speed_min": 10.0,
         "speed_max": 14.0,
         "particle_lifespan_limit": 1.5,
-        
         "physics": {
             "initialSpeed": {
                 "min": 10.0,
@@ -117,7 +123,7 @@
         "type": "EMITTER",
         "object_type": "EMITTER",
         "mesh_path": "data/props/ball.obj",
-        "is_mesh_visible": true,
+        "is_mesh_visible": false,
         "is_emitting": true,
         "emitter_mode": "TEXTURED_SPRITES",
         "emitter_object": "data/props/plane.obj",
@@ -185,29 +191,38 @@
         }
     },
     "Water Shower Stream": {
-    "name": "Water Shower Stream",
-    "type": "EMITTER",
-    "object_type": "EMITTER",
-    "mesh_path": "data/props/ball.obj",
-    "is_mesh_visible": true,
-    "is_emitting": true,
-    
-    "emitter_mode": "TEXTURED_SPRITES",
-    "particle_texture": "data/props/particles/water_drop.png",
-    "particle_draw_size": 32.0,
-    "particle_color": [0.4, 0.7, 1.0, 0.8],
-    
-    "// 🟢 UNWRAPPED ROOT LEVEL PHYSICS": "Pushed to the root so the emitter constructor can read them natively!",
-    "particle_count": 450,
-    "max_particles": 450,
-    "gravity": [0.0, -9.81, 0.0],
-    "spread_direction": [0.0, -1.0, 0.0],
-    "spread_angle": 15.0,
-    "speed_min": 1.5,
-    "speed_max": 3.0,
-    
-    "default_bone": "hand_R",
-    "use_parenting": false
+        "name": "Water Shower Stream",
+        "type": "EMITTER",
+        "object_type": "EMITTER",
+        "mesh_path": "data/props/ball.obj",
+        "is_mesh_visible": true,
+        "is_emitting": true,
+        "emitter_mode": "TEXTURED_SPRITES",
+        "particle_texture": "data/props/particles/water_drop.png",
+        "particle_draw_size": 32.0,
+        "particle_color": [
+            0.4,
+            0.7,
+            1.0,
+            0.8
+        ],
+        "particle_count": 450,
+        "max_particles": 450,
+        "gravity": [
+            0.0,
+            -9.81,
+            0.0
+        ],
+        "spread_direction": [
+            0.0,
+            -1.0,
+            0.0
+        ],
+        "spread_angle": 15.0,
+        "speed_min": 1.5,
+        "speed_max": 3.0,
+        "default_bone": "hand_R",
+        "use_parenting": false
     },
     "torch_01": {
         "id": "torch_01",

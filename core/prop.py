@@ -1,12 +1,14 @@
 """
-Prop Module Build with Interactive Map Integration.
+Prop Module Build with Interactive Map Integration(bonefix) V1.1
 Part of the MakeHuman 2 Project contributed by Elvaerwyn_MH2 2026.
 """
 
 import numpy as np
 import os
-from PySide6.QtWidgets import (QListWidget, QListWidgetItem, QDoubleSpinBox, QFormLayout, 
+
+from PySide6.QtWidgets import (QWidget, QListWidget, QListWidgetItem, QDoubleSpinBox, QFormLayout, 
                              QComboBox, QCheckBox, QVBoxLayout, QPushButton, QLabel, QHBoxLayout)
+
 from PySide6.QtCore import Qt, QSize 
 from PySide6.QtGui import QVector3D, QIcon, QPixmap
 from gui.common import MHGroupBox, ErrorBox, HintBox
@@ -305,9 +307,6 @@ class PropManLeftPanel(QVBoxLayout):
             return
         current_prop = self.propman.setCurrentProp(current.text())
 
-        # =====================================================================
-        # >>> FIXED: CORRECTED INSTANCE VARIABLE LOOKUP TYPO >>>
-        # =====================================================================
         if current_prop:
             self.setValueFromProp(current_prop)
 
@@ -611,7 +610,7 @@ class PropManagerPanel(MHGroupBox):
         return self.current_prop
 
     def pump_state_machine_tick(self):
-        """Pumps continuous frame updates down to the state machine architecture safely."""
+        """Pumps continuous frame updates down to the state machine architecture."""
         if self.glob is not None:
             settings_panel = getattr(self.glob, 'scene_settings_panel', None)
             if settings_panel:
@@ -639,7 +638,7 @@ class PropManagerPanel(MHGroupBox):
                 
                 if bc and getattr(bc, 'skeleton', None) is not None and target_bone_name != "None":
                     skeleton = bc.skeleton
-                    if target_bone_name in skeleton.bones:
+                    if hasattr(skeleton, 'bones') and target_bone_name in skeleton.bones:
                         bone = skeleton.bones[target_bone_name]
                         try:
                             bone_matrix = bone.getMatrix(posed=True) if hasattr(bone, 'getMatrix') else bone.matrix
@@ -649,10 +648,24 @@ class PropManagerPanel(MHGroupBox):
                         bone_world_pos = bone_matrix[:3, 3]
                         
                         if not hasattr(self.current_prop, 'local_offset_pos') or np.all(self.current_prop.local_offset_pos == 0.0):
-                            self.current_prop.local_offset_pos = np.array([0.0, 0.1, 0.0])
+                            self.current_prop.local_offset_pos = [0.0, 0.1, 0.0]
                         
                         local_offset = self.current_prop.local_offset_pos
-                        self.current_prop.position = np.array(bone_world_pos) + np.array(local_offset)
+
+                        if hasattr(bone_world_pos, 'tolist'):
+                            flat_b_pos = bone_world_pos.tolist()
+                        else:
+                            flat_b_pos = list(bone_world_pos)
+
+                        local_offset = getattr(self.current_prop, 'local_offset_pos', [0.0, 0.1, 0.0])
+                        if not isinstance(local_offset, (list, tuple, np.ndarray)) or len(local_offset) < 3:
+                            local_offset = [0.0, 0.1, 0.0]
+
+                        self.current_prop.position = [
+                            float(flat_b_pos[0] + local_offset[0]),
+                            float(flat_b_pos[1] + local_offset[1]),
+                            float(flat_b_pos[2] + local_offset[2])
+                        ]
                         self.update_prop()
 
     def sync_sidebar_list_display(self):
@@ -952,12 +965,147 @@ class PropManagerPanel(MHGroupBox):
                 HintBox(self.parent.central_widget, "Saved transform profile to: " + json_path)
 
     def findBonePosition(self):
+        """Intelligently matches bone targets across any custom base mesh. Enforces strict name symbiosis first!"""
         pbone = self.bone_selector.currentText()
         if pbone == "None" or not self.parent_toggle.isChecked(): 
             return
         bc = self.glob.baseClass
         if bc is None: 
             return
-        b_coord, bone = bc.getVirtualBonePosition(pbone)
+            
+        skeleton = getattr(bc, 'pose_skeleton', getattr(bc, 'default_skeleton', None))
+        if not skeleton and hasattr(bc, 'skeleton'):
+            skeleton = bc.skeleton
+
+        if not skeleton or not hasattr(skeleton, 'bones'):
+            print("[Intelligent Spawner] Error: No active skeleton rig detected on current base mesh mesh.")
+            return
+
+        # STAGE A: STRICT NAME SYMBIOSIS PASS
+        target_joint_key = None
+        raw_selection_string = str(pbone).strip()
+        
+        if raw_selection_string in skeleton.bones:
+            target_joint_key = raw_selection_string
+            print(f"[Name Symbiosis] Perfect match found! Locked directly onto unified rig key: '{target_joint_key}'")
+
+        # STAGE B: ADAPTIVE KEYWORD SCANNER FALLBACK (For alternative rigs)
+        if not target_joint_key:
+            search_keyword = raw_selection_string.lower()
+            if "hand_r" in search_keyword:
+                keywords = ["wrist.r", "hand_r", "hand.r", "r_hand", "wrist_r", "manipulator_r"]
+            elif "hand_l" in search_keyword:
+                keywords = ["wrist.l", "hand_l", "hand.l", "l_hand", "wrist_l", "manipulator_l"]
+            elif "foot_r" in search_keyword:
+                keywords = ["ankle.r", "foot_r", "foot.r", "r_foot", "ankle_r", "paw.r"]
+            elif "foot_l" in search_keyword:
+                keywords = ["ankle.l", "foot_l", "foot.l", "l_foot", "ankle_l", "paw.l"]
+            else:
+                keywords = [search_keyword]
+
+            for bone_key in skeleton.bones.keys():
+                bone_key_lower = str(bone_key).lower().strip()
+                if any(kw in bone_key_lower for kw in keywords):
+                    target_joint_key = bone_key
+                    break
+
+        if not target_joint_key:
+            for bone_key in skeleton.bones.keys():
+                if raw_selection_string.lower() in str(bone_key).lower():
+                    target_joint_key = bone_key
+                    break
+
+        if not target_joint_key:
+            target_joint_key = list(skeleton.bones.keys())[0] if skeleton.bones else "root"
+
+        b_coord = [0.0, 0.814, 0.0]
+        if target_joint_key in skeleton.bones:
+            bone_obj = skeleton.bones[target_joint_key]
+            b_coord, bone = bc.getVirtualBonePosition(target_joint_key)
+            
+            # Unpack array wrappers safely into flat float properties
+            if hasattr(b_coord, 'tolist'):
+                b_coord = b_coord.tolist()
+            else:
+                b_coord = [float(b_coord[0]), float(b_coord[1]), float(b_coord[2])]
+
         if bone and self.current_prop: 
-            self.current_prop.position += b_coord
+            # Stamp clean variables back onto the active configurations parameters
+            self.current_prop.parent_bone = target_joint_key
+            self.current_prop.local_offset_pos = [0.0, 0.0, 0.0]
+            self.current_prop.position = [float(b_coord[0]), float(b_coord[1]), float(b_coord[2])]
+            self.update_prop()
+            print(f"[Intelligent Spawner] Prop locked firmly to bone origin '{target_joint_key}'. Drift averted.")
+# ================================================
+# INTEGRATED REAL-TIME SLIDER CONFIGURATION PANEL 
+# ================================================
+class CoreMH2PropPanel(QWidget):
+    def __init__(self, glob, parent_layout):
+        super().__init__()
+        self.active_prop_object = None
+        self.glob = glob
+        self.manifest_data = load_props_manifest()
+        
+        self.inject_ui_into_panel(parent_layout)
+
+    def inject_ui_into_panel(self, layout):
+        """Builds controls directly inline with the current Prop Panel setup"""
+        # Locally import remaining layout widgets to keep the file header factory-clean
+        from PySide6.QtWidgets import QGroupBox, QSlider
+        
+        self.emitter_box = QGroupBox("Live Emitter Configurations (JSON Connected)")
+        v_layout = QVBoxLayout()
+
+        # Checkbox 1: Toggle Object Mesh Visibility (Ghost Mode Selector)
+        self.hide_mesh_cb = QCheckBox("Hide Object Mesh (Pure Ghost Emitter)")
+        self.hide_mesh_cb.toggled.connect(self.on_visibility_toggled)
+        v_layout.addWidget(self.hide_mesh_cb)
+
+        # Slider 1: Dynamic Max Particle Adjuster
+        v_layout.addWidget(QLabel("Max Particles Density:"))
+        self.count_slider = QSlider(Qt.Horizontal)
+        self.count_slider.setRange(50, 1000)
+        self.count_slider.valueChanged.connect(self.on_density_slider_changed)
+        v_layout.addWidget(self.count_slider)
+
+        self.emitter_box.setLayout(v_layout)
+        layout.addWidget(self.emitter_box)
+        
+        # Hide editing options until an asset marked as EMITTER gets selected
+        self.emitter_box.setVisible(False)
+
+    def select_prop_by_id(self, prop_id):
+        """Triggered when choosing items inside the object asset selector list"""
+        prop_config = self.manifest_data.get(prop_id)
+        
+        if prop_config and prop_config.get("type") == "EMITTER":
+            # Initialize live emitter object tracking logic
+            self.active_prop_object = MH2LiveEmitterProp(self.glob, prop_id, prop_config)
+            
+            # Map existing file configurations out of JSON straight to UI handles
+            self.hide_mesh_cb.setChecked(not prop_config.get("is_mesh_visible", True))
+            self.count_slider.setValue(prop_config.get("particle_count", 300))
+            
+            self.emitter_box.setVisible(True)
+        else:
+            self.emitter_box.setVisible(False)
+
+    # Real-Time UI Editing Callbacks that Rewrite the JSON on the fly
+    def on_visibility_toggled(self, checked):
+        if self.active_prop_object:
+            # Update memory representation variable
+            self.active_prop_object.is_mesh_visible = not checked
+            
+            # Commit the property value edit directly back to the resource JSON file
+            update_prop_json_entry(self.active_prop_object.prop_id, {
+                "is_mesh_visible": not checked
+            })
+
+    def on_density_slider_changed(self, value):
+        if self.active_prop_object:
+            self.active_prop_object.max_particles = value
+            
+            # Commit the changed slider limit calculation to disk configuration
+            update_prop_json_entry(self.active_prop_object.prop_id, {
+                "particle_count": value
+            })

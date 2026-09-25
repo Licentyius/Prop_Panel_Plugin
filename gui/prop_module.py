@@ -1,5 +1,5 @@
 """
-Prop Module v2.8 (Unified Edition V2).
+Prop Module v2.8a (Unified Edition V2).
 Part of the MakeHuman 2 Project contributed by Elvaerwyn_MH2 2026.
 """
 
@@ -107,11 +107,12 @@ class PropObject():
         self.is_emitting = False        # Links directly to emission checkmark
         self.is_mesh_visible = True     # Links directly to ghost mode checkmark
 
-        self.emitter = None             # should hold the emitter connection (wild hold also max-particles etc.)
+        self.emitter = None             # should hold the emitter connection
 
-        self.position = np.array([0.0, 0.0, 0.0], dtype=np.float64)
-        self.rotation = np.array([0.0, 0.0, 0.0], dtype=np.float64) 
-        self.scale = np.array([1.0, 1.0, 1.0], dtype=np.float64)
+        # THE VIEWPORT UNBLOCK PASS:
+        self.position = [0.0, 0.0, 0.0]
+        self.rotation = [0.0, 0.0, 0.0] 
+        self.scale = [1.0, 1.0, 1.0]
 
     def set_transform(self, pos=None, rot=None, scl=None):
         """Sets raw 3D transformations and completely shatters the invisible culling cage."""
@@ -947,18 +948,28 @@ class PropManLeftPanel(QWidget):
             pass # Fail safely if already connected
 
     def sync_ghost_mode_to_asset(self, state):
-        """Hides the solid mesh (Ghost Mode) when checked without breaking the GIMP alpha animations!"""
-        # ghost_mode_cb is checked when we WANT ghost mode (meaning mesh visibility is FALSE)
+        """Hides strictly the solid 3D mesh hull drawings without making the asset container invisible to managers!"""
         is_ghost = (state == 2)
         current_prop = self.propman.current_prop if hasattr(self.propman, 'current_prop') else None
+        
         if current_prop:
+            # THE SEPARATION VALVE: Update strictly the independent shape parameter!
             current_prop.is_mesh_visible = not is_ghost
-            current_prop.visible = not is_ghost
+            
+            # FORCE LIVE TRACKING: Keep the master visibility flag permanently TRUE
+            current_prop.visible = True
+            
             if hasattr(current_prop, 'emitter') and current_prop.emitter:
                 current_prop.emitter.is_mesh_visible = not is_ghost
+                
+            # If the prop object has an underlying proxy object3d container, keep it alive too
+            if hasattr(current_prop, 'obj') and current_prop.obj:
+                current_prop.obj.visible = True
+
             if self.glob and getattr(self.glob, 'openGLWindow', None):
                 self.glob.openGLWindow.update()
-            print(f"[FX Sync] Ghost Mode Toggled. Mesh Visible: {not is_ghost}")
+                
+            print(f"[Ghost Sync] Mode updated. Master Container: Safe. Solid Mesh Hull Drawn: {not is_ghost}")
 
     def sync_emission_to_asset(self, state):
         """Wakes up or freezes the particle simulation clock vector loop dynamically on click."""
@@ -1580,16 +1591,9 @@ class PropManagerPanel(MHGroupBox):
         if not props_list:
             return
 
-
-        # Repaint the viewport window canvas cleanly
-        if self.glob and getattr(self.glob, 'openGLWindow', None):
-            self.glob.openGLWindow.update()
-
-
         dt = 0.033 # Fixed 30 FPS physics calculation delta step
 
         for prop in props_list:
-
             # Check normal emission switches (Play/Pause interface sync)
             if not getattr(prop, 'is_emitting', False):
                 continue
@@ -1601,22 +1605,42 @@ class PropManagerPanel(MHGroupBox):
             if prop.emitter:
                 emitter = prop.emitter
 
-                # 1. Spawn a burst of 3 fresh particles up to the maximum density slider threshold
+                # 1. Spawn a burst of 2 fresh particles up to the maximum density slider threshold
                 if len(emitter.particles_pool) < int(emitter.max_particles):
                     emitter.newParticles(2)
 
                 # 2. Progress particle coordinates smoothly along velocity vectors
-                # This executes a clean, non-hardcoded trajectory track inside emitter_prop.py
-                for p in emitter.particles_pool:
-                    p.update(dt)
+                # 🟢 COLLISION INJECTION SHIELD: Safely validates data models to ensure 
+                # custom NumPy structure arrays are parsed using clean component floats!
+                for p in list(emitter.particles_pool):
+                    try:
+                        if hasattr(p, 'update'):
+                            p.update(dt)
+                        else:
+                            # Direct numeric component fallback track if p is an array index block
+                            if hasattr(p, 'pos'):
+                                p.pos[0] += getattr(p, 'vel', [0.0, 1.0, 0.0])[0] * dt
+                                p.pos[1] += getattr(p, 'vel', [0.0, 1.0, 0.0])[1] * dt
+                                p.pos[2] += getattr(p, 'vel', [0.0, 1.0, 0.0])[2] * dt
+                    except Exception:
+                        pass
 
                 # 3. Flush expired nodes cleanly out of memory allocations
-                emitter.flushDead()
+                if hasattr(emitter, 'flushDead'):
+                    emitter.flushDead()
             
                 # 4. Flatten the structured variables completely into a continuous 1D floating-point array
-                emitter.particles = []
+                flat_coords_buffer = []
                 for part in emitter.particles_pool:
-                    emitter.particles.extend([float(part.x), float(part.y), float(part.z)])
+                    # Intelligently extract coordinates based on variable type definitions
+                    if hasattr(part, 'x') and hasattr(part, 'y') and hasattr(part, 'z'):
+                        flat_coords_buffer.extend([float(part.x), float(part.y), float(part.z)])
+                    elif hasattr(part, 'pos'):
+                        flat_coords_buffer.extend([float(part.pos[0]), float(part.pos[1]), float(part.pos[2])])
+                    elif isinstance(part, (list, tuple, np.ndarray)) and len(part) >= 3:
+                        flat_coords_buffer.extend([float(part[0]), float(part[1]), float(part[2])])
+                        
+                emitter.particles = flat_coords_buffer
 
         # Command the OpenGL viewport window to refresh and repaint the scene
         if self.glob and getattr(self.glob, 'openGLWindow', None):
@@ -1775,16 +1799,52 @@ class PropManagerPanel(MHGroupBox):
     # TARGET CALLBACK RECEIVERS FOR DYNAMIC EMITTER SLIDERS
     # ======================================================
     def toggle_ghost_mesh_mode(self):
-        """Toggles solid mesh visibility (Ghost Mode) without breaking transparent alpha layers!"""
-        if self.current_prop and not self.is_updating_ui:
-            current_state = getattr(self.current_prop, 'is_mesh_visible', True)
-            new_state = not current_state
-            self.current_prop.is_mesh_visible = new_state
-            self.current_prop.visible = new_state
-            if hasattr(self.current_prop, 'emitter') and self.current_prop.emitter:
-                self.current_prop.emitter.is_mesh_visible = new_state
-            self._trigger_viewport_redraw()
-            print(f"[FX Sync] Ghost mode updated. Mesh Drawing Active: {new_state}")
+        """Unified, un-interrupted Ghost Mode toggle. Direct injection eliminates signal cross-talk!"""
+        if not self.current_prop:
+            return
+            
+        # 1. Flip the active state variable safely inside memory
+        current_state = getattr(self.current_prop, 'is_mesh_visible', True)
+        new_state = not current_state
+        
+        self.current_prop.is_mesh_visible = new_state
+        self.current_prop.visible = True  # Enforce container keep-alive!
+        
+        # 2. THE DIRECT LIVE INJECTION VALVE:
+        # Pushes the variable exactly onto the runtime handles the GPU is looping over!
+        if hasattr(self.current_prop, 'mesh_reference') and self.current_prop.mesh_reference:
+            self.current_prop.mesh_reference.is_mesh_visible = new_state
+            
+        if hasattr(self.current_prop, 'obj') and self.current_prop.obj:
+            self.current_prop.obj.is_mesh_visible = new_state
+            self.current_prop.obj.visible = True
+
+        # Sync the partner emitter flags if available
+        if hasattr(self.current_prop, 'emitter') and self.current_prop.emitter:
+            self.current_prop.emitter.is_mesh_visible = new_state
+
+        # Update local JSON Entry data records cleanly
+        prop_id_key = getattr(self.current_prop, 'prop_id', getattr(self.current_prop, 'name', '')).strip().lower()
+        if prop_id_key:
+            update_prop_json_entry(prop_id_key, {"is_mesh_visible": new_state})
+
+        # 3. Synchronize the visual graphics checklist states across any other panel trackers
+        if hasattr(self, 'ghost_mode_cb') and self.ghost_mode_cb:
+            self.ghost_mode_cb.blockSignals(True)
+            self.ghost_mode_cb.setChecked(not new_state)
+            self.ghost_mode_cb.blockSignals(False)
+            
+        manager = getattr(self, 'propman', None)
+        if manager and hasattr(manager, 'ghost_emitter_btn') and manager.ghost_emitter_btn:
+            manager.ghost_emitter_btn.blockSignals(True)
+            manager.ghost_emitter_btn.setChecked(not new_state)
+            manager.ghost_emitter_btn.blockSignals(False)
+
+        # Force an instant frame repaint pass on the OpenGL canvas surface
+        if self.glob and getattr(self.glob, 'openGLWindow', None):
+            self.glob.openGLWindow.update()
+            
+        print(f"[FX Sync] Ghost Mode applied via unified portal. Solid Mesh Active: {new_state}")
 
     def toggle_particle_emission_state(self, state):
         """Toggles whether the birth engine continues generating fresh particle streams."""
@@ -1910,7 +1970,7 @@ class PropManagerPanel(MHGroupBox):
 
         if not hasattr(engine_obj, 'material') or not isinstance(engine_obj.material, Material):
             obj_dir = os.path.dirname(active_prop.path)
-            # Use our secured runtime global pointer handle safely here
+            # Use a secured runtime global pointer handle safely here
             native_material_layer = Material(glob=runtime_glob, objdir=obj_dir, eqtype="props")
             native_material_layer.name = f"{active_prop.name}_material"
             
@@ -2030,14 +2090,41 @@ class PropManagerPanel(MHGroupBox):
             self._trigger_viewport_redraw()
 
     def toggle_parenting(self, state):
+        """Toggles bone parenting loops and maps human-readable names to official skeleton rig keys."""
         is_checked = (state == 2)
         self.bone_selector.setEnabled(is_checked)
+        
         if self.current_prop:
             if not is_checked and hasattr(self, 'prop_fsm') and self.prop_fsm.current_state_name == "USING":
                 self.prop_fsm.transition_to(self.current_prop.name, "UNEQUIPPING")
                 return
+                
             self.current_prop.use_parenting = is_checked
-            self.current_prop.parent_bone = self.bone_selector.currentText() if is_checked else "None"
+            raw_bone_selection = self.bone_selector.currentText() if is_checked else "None"
+            
+            # THE RIG DICTIONARY VALVE: Maps readable buttons straight to formal skeleton tracks!
+            bone_rig_map = {
+                "None": "None",
+                "head": "head",
+                "hand_R": "wrist.R",
+                "hand_L": "wrist.L",
+                "foot_R": "ankle.R",
+                "foot_L": "ankle.L",
+                "spine_03": "spine_03"
+            }
+            
+            # Translate the name cleanly before saving it onto the active prop object handle
+            mapped_bone = bone_rig_map.get(raw_bone_selection, raw_bone_selection)
+            self.current_prop.parent_bone = mapped_bone
+            
+            # Update the underlying transformation matrix structures instantly
+            pipeline = getattr(self.glob, 'prop_manager_pipeline', None)
+            if pipeline and hasattr(pipeline, 'registerProp') and is_checked:
+                # Force-re-register the prop onto the correct rigged joint track dynamically
+                t_struct = {"translation": [0.0, 0.0, 0.0], "rotation": list(self.current_prop.rotation), "scale": list(self.current_prop.scale)}
+                pipeline.unregisterProp(self.current_prop.name)
+                pipeline.registerProp(self.current_prop.name, self.current_prop.obj, parent_bone=mapped_bone, relative_transform=t_struct)
+                
         self.update_prop()
 
     def setCurrentProp(self, prop_name):
@@ -2066,9 +2153,22 @@ class PropManagerPanel(MHGroupBox):
         self.parent_toggle.setChecked(prop_parenting)
         self.bone_selector.setEnabled(prop_parenting)
             
-        idx = self.bone_selector.findText(prop_bone)
+        # REVERSE LOOKUP MAP: Connects rig tracks back to human-readable UI dropdown rows
+        reverse_bone_map = {
+            "None": "None",
+            "head": "head",
+            "wrist.R": "hand_R",
+            "wrist.L": "hand_L",
+            "ankle.R": "foot_R",
+            "ankle.L": "foot_L",
+            "spine_03": "spine_03"
+        }
+        readable_bone_name = reverse_bone_map.get(str(prop_bone), "None")
+        
+        idx = self.bone_selector.findText(readable_bone_name)
         if idx >= 0: 
             self.bone_selector.setCurrentIndex(idx)
+
         
         self.visibility_toggle.blockSignals(False)
         self.parent_toggle.blockSignals(False)
@@ -2351,7 +2451,6 @@ class PropManagerPanel(MHGroupBox):
                                 grid_item.setIcon(QIcon(QPixmap(data["icon"])))
                             child_list.addItem(grid_item)
 
-
     def find_prop_by_name(self, name):
         """Looks up an active prop instance by its string identifier name case-insensitively."""
         if not name or not hasattr(self.glob, 'custom_props_list'):
@@ -2412,7 +2511,16 @@ class PropManagerPanel(MHGroupBox):
         initial_pos = [0.0, 0.0, 0.0]
         initial_rot = [0.0, 0.0, 0.0]
         initial_scale = [1.0, 1.0, 1.0]
+        
+        # NATIVE MANIFEST DECOUPLING PASS:
+        # Extract 'visible' and 'is_mesh_visible' right at the initial declaration layer!
+        # If the keys are missing from the manifest profile, they default cleanly to True.
         initial_vis = True
+        initial_mesh_vis = True
+        if config_data is not None:
+            initial_vis = bool(config_data.get("visible", True))
+            initial_mesh_vis = bool(config_data.get("is_mesh_visible", True))
+
         use_parent = False
         target_bone = "None"
         
@@ -2420,7 +2528,6 @@ class PropManagerPanel(MHGroupBox):
             initial_pos = config_data.get("position", config_data.get("offset", initial_pos))
             initial_rot = config_data.get("rotation", initial_rot)
             initial_scale = config_data.get("scale", initial_scale)
-            initial_vis = config_data.get("is_mesh_visible", config_data.get("visible", initial_vis))
             
             parenting_block = config_data.get("parenting", {})
             if isinstance(parenting_block, dict):
@@ -2451,8 +2558,6 @@ class PropManagerPanel(MHGroupBox):
                             initial_pos = getattr(bone, 'poseheadPos', initial_pos)
                         else:
                             initial_pos = getattr(bone, 'headPos', initial_pos)
-
-
 
         safe_pos = [float(p) for p in initial_pos] if hasattr(initial_pos, '__len__') else [0.0, 0.0, 0.0]
         safe_rot = [float(r) for r in initial_rot] if hasattr(initial_rot, '__len__') else [0.0, 0.0, 0.0]
@@ -2522,29 +2627,31 @@ class PropManagerPanel(MHGroupBox):
                 ErrorBox(self.glob.centralWidget, err)
             new_prop.emitter.loadParticleTexture()
 
-
         new_prop.position = np.array(safe_pos, dtype=np.float64)
         new_prop.rotation = np.array(safe_rot, dtype=np.float64)
         new_prop.scale = np.array(safe_scale, dtype=np.float64)
-        new_prop.visible = initial_vis
-        new_prop.is_mesh_visible = initial_vis
-        new_prop.use_parenting = use_parent
-        new_prop.parent_bone = target_bone
-        
-        new_prop.name = str(name)
 
-        if not hasattr(self.glob, 'custom_props_list') or self.glob.custom_props_list is None:
-            self.glob.custom_props_list = []
+        new_prop.visible = initial_vis
+        new_prop.is_mesh_visible = initial_mesh_vis
+        
+        if hasattr(new_prop, 'emitter') and new_prop.emitter:
+            new_prop.emitter.is_mesh_visible = initial_mesh_vis
 
         self.current_prop = new_prop
+        if not hasattr(self.glob, 'custom_props_list') or self.glob.custom_props_list is None:
+            self.glob.custom_props_list = []
+            
         self.glob.custom_props_list.append(new_prop)
 
-        if self.leftPanel: 
+        if hasattr(self, 'leftPanel') and self.leftPanel:
             self.leftPanel.setValueFromProp(new_prop)
+        elif hasattr(self, 'left_panel_widget') and self.left_panel_widget:
+            self.left_panel_widget.setValueFromProp(new_prop)
             
-        self.global_pipeline_refresh()
+        if hasattr(self, 'propman') and self.propman:
+            self.propman.global_pipeline_refresh()
+            
         return True, ""
-
 
     def update_selection_focus_by_name(self, target_name):
         """Allows raycasting loops or text items to swap active selection focus cleanly."""
@@ -2691,34 +2798,114 @@ class PropManagerPanel(MHGroupBox):
         self.glob.openGLWindow.Tweak()
 
     def findBonePosition(self):
-        pbone = self.bone_selector.currentText()
-        if pbone == "None" or not self.parent_toggle.isChecked(): 
+        """Intelligently matches bone targets across any custom base mesh. Enforces strict name symbiosis first!"""
+        ui_selection = self.bone_selector.currentText()
+        if ui_selection == "None" or not self.parent_toggle.isChecked(): 
             return
             
         bc = getattr(self.glob, 'baseClass', None)
         if bc is None: 
             return
  
-        b_coord, bone = bc.getVirtualBonePosition(pbone)
+        # Fetch the live running skeleton regardless of the base mesh model loaded
+        skeleton = getattr(bc, 'pose_skeleton', getattr(bc, 'default_skeleton', None))
+        if not skeleton and hasattr(bc, 'skeleton'):
+            skeleton = bc.skeleton
 
-        if bone and self.current_prop: 
+        if not skeleton or not hasattr(skeleton, 'bones'):
+            print("[Intelligent Spawner] Error: No active skeleton rig could be detected on the current base mesh.")
+            return
 
-            # Pull custom offset adjustments securely from local metadata slots
-            offset = getattr(self.current_prop, 'local_offset_pos', np.array([0.0,0.0,0.0]))
+        # 1. STAGE A: STRICT NAME SYMBIOSIS PASS
+        target_joint_key = None
+        raw_selection_string = str(ui_selection).strip()
+        
+        if raw_selection_string in skeleton.bones:
+            target_joint_key = raw_selection_string
+            print(f"[Name Symbiosis] Perfect match found! Locked directly onto unified rig key: '{target_joint_key}'")
+
+        # 2. STAGE B: ADAPTIVE KEYWORD SCANNER FALLBACK
+        if not target_joint_key:
+            search_keyword = raw_selection_string.lower()
+            if "hand_r" in search_keyword:
+                keywords = ["wrist.r", "hand_r", "hand.r", "r_hand", "wrist_r", "manipulator_r", "finger"]
+            elif "hand_l" in search_keyword:
+                keywords = ["wrist.l", "hand_l", "hand.l", "l_hand", "wrist_l", "manipulator_l"]
+            elif "foot_r" in search_keyword:
+                keywords = ["ankle.r", "foot_r", "foot.r", "r_foot", "ankle_r", "paw.r"]
+            elif "foot_l" in search_keyword:
+                keywords = ["ankle.l", "foot_l", "foot.l", "l_foot", "ankle_l", "paw.l"]
+            else:
+                keywords = [search_keyword]
+
+            for bone_key in skeleton.bones.keys():
+                bone_key_lower = str(bone_key).lower().strip()
+                if any(kw in bone_key_lower for kw in keywords):
+                    target_joint_key = bone_key
+                    break
+
+        if not target_joint_key:
+            for bone_key in skeleton.bones.keys():
+                if raw_selection_string.lower() in str(bone_key).lower():
+                    target_joint_key = bone_key
+                    break
+
+        if not target_joint_key:
+            target_joint_key = list(skeleton.bones.keys()) if skeleton.bones else "root"
+
+        b_coord = [0.0, 0.814, 0.0]
+        if target_joint_key in skeleton.bones:
+            bone_obj = skeleton.bones[target_joint_key]
+            
+            if hasattr(bone_obj, 'poseheadPos') and getattr(bc, 'in_posemode', False):
+                raw_pos = bone_obj.poseheadPos
+            elif hasattr(bone_obj, 'headPos'):
+                raw_pos = bone_obj.headPos
+            else:
+                raw_pos = getattr(bone_obj, 'pos', [0.0, 0.814, 0.0])
                 
-            # Apply absolute snap coordinates without stacking values into an infinite drift loop
-            aligned_pos = [
-                float(offset[0] + b_coord[0]),
-                float(offset[1] + b_coord[1]),
-                float(offset[2] + b_coord[2])
-            ]
-                
-            self.current_prop.position = np.array(aligned_pos, dtype=np.float64)
+            try:
+                # 🟢 THE NUMPY TO NATIVE LIST EXTRACTOR:
+                # If the coordinate data layout returned from the rig is a numpy array object,
+                # forcefully extract it back into a flat, raw python list string array cleanly!
+                if hasattr(raw_pos, 'tolist'):
+                    parsed_array = raw_pos.tolist()
+                elif isinstance(raw_pos, np.ndarray):
+                    parsed_array = list(raw_pos)
+                else:
+                    parsed_array = raw_pos
+
+                if hasattr(parsed_array, '__getitem__') and len(parsed_array) >= 3:
+                    b_coord = [float(parsed_array[0]), float(parsed_array[1]), float(parsed_array[2])]
+                else:
+                    b_coord = [float(parsed_array), float(parsed_array), float(parsed_array)]
+            except Exception as parse_err:
+                print(f"[Intelligent Spawner Warning] Coordinate parsing fallback hit: {parse_err}")
+                b_coord = [0.0, 0.814, 0.0]
+
+        if self.current_prop: 
+            self.current_prop.parent_bone = target_joint_key
+            
+            # Stamp clean, flat floating primitive variables back onto the active selections
+            self.current_prop.local_offset_pos = [0.0, 0.0, 0.0]
+            self.current_prop.position = [float(b_coord[0]), float(b_coord[1]), float(b_coord[2])]
+            
+            pipeline = getattr(self.glob, 'prop_manager_pipeline', None)
+            if pipeline and hasattr(pipeline, 'updatePropTransform'):
+                pipeline.updatePropTransform(
+                    self.current_prop.name, 
+                    translation=self.current_prop.position, 
+                    rotation=self.current_prop.rotation, 
+                    scale=self.current_prop.scale
+                )
+                if hasattr(pipeline, 'active_props') and self.current_prop.name in pipeline.active_props:
+                    pipeline.active_props[self.current_prop.name]["parent_bone"] = target_joint_key
                 
             if self.leftPanel:
                 self.leftPanel.setValueFromProp(self.current_prop)
                     
             self._trigger_viewport_redraw()
+            print(f"[Intelligent Spawner] Dynamically mapped to rig joint '{target_joint_key}' for selection '{ui_selection}'. Drift neutralized.")
 
 _standalone_studio_dock_instance = None
 
@@ -2873,24 +3060,47 @@ def initialize_prop_studio(app_reference, glob_reference, **kwargs):
     prop_list_widget.itemSelectionChanged.connect(on_prop_selection_changed)
 
 
-    def on_ghost_toggled(checked):
+    def on_ghost_toggled(self, checked):
+        """Fires when clicking the ghost checkbox to update manifest states and live scene meshes instantly."""
+        global _standalone_studio_dock_instance
+        if not _standalone_studio_dock_instance:
+            return
+
         active_id = _standalone_studio_dock_instance.property("active_prop_id")
-        current_manifest = _standalone_studio_dock_instance.property("manifest_data") or {}
-        
-        if active_id and active_id in current_manifest:
-            is_visible = not checked
-            current_manifest[active_id]["is_mesh_visible"] = is_visible
-            
-            # Flush updates down to the property tracker loop so selections preserve states
-            _standalone_studio_dock_instance.setProperty("manifest_data", current_manifest)
-            
-            update_prop_json_entry(active_id, {"is_mesh_visible": is_visible})
-            print(f"[Prop Studio Context] Ghost option updated and saved for item: {active_id}")
-            
-            if hasattr(glob_reference, 'openGLWindow') and glob_reference.openGLWindow:
-                glob_reference.openGLWindow.Tweak()
-                if hasattr(glob_reference.openGLWindow, 'update'):
-                    glob_reference.openGLWindow.update()
+        loaded_manifest = _standalone_studio_dock_instance.property("manifest_data") or {}
+
+        if active_id and active_id in loaded_manifest:
+            is_mesh_visible = not checked
+            loaded_manifest[active_id]["is_mesh_visible"] = is_mesh_visible
+
+            custom_pool = getattr(self.glob, 'custom_props_list', [])
+            for prop in custom_pool:
+                target_id = getattr(prop, 'prop_id', getattr(prop, 'name', ''))
+                if str(target_id).lower() == str(active_id).lower() or str(getattr(prop, 'name', '')).lower() == str(active_id).lower():
+                    # Update strictly the independent shape parameter
+                    prop.is_mesh_visible = is_mesh_visible
+                    
+                    # Keep the master asset open so the top-level draw loops never drop it!
+                    prop.visible = True  
+
+                    if hasattr(prop, 'emitter') and prop.emitter:
+                        prop.emitter.is_mesh_visible = is_mesh_visible
+
+
+            update_prop_json_entry(active_id, {"is_mesh_visible": is_mesh_visible})
+
+            from core.json_io import save_prop_changes_to_json
+            try:
+                save_prop_changes_to_json(active_id, {"is_mesh_visible": is_mesh_visible})
+                print(f"[Prop Studio Serialization] Successfully saved persistent Ghost Mode state data track to asset disk files.")
+            except Exception as json_err:
+                print(f"[Prop Studio Serialization Warning] Direct disk save pass deferred: {json_err}")
+
+            print(f"[Prop Studio Context] Ghost option updated. Master Container: Alive. Mesh Drawing Active: {is_mesh_visible}")
+
+            if hasattr(self.glob, 'openGLWindow') and self.glob.openGLWindow:
+                self.glob.openGLWindow.update()
+
 
     ghost_mode_cb.toggled.connect(on_ghost_toggled)
 
@@ -3193,7 +3403,6 @@ def draw_prop_studio_left_column(main_window, left_box_layout):
             
     main_window.lastForm = left_panel
     return left_panel
-
 
 def draw_prop_studio_right_column(main_window, right_box_layout):
     """Natively called during drawRightPanel execution loops inside MakeHuman 2."""
