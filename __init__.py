@@ -17,10 +17,9 @@ from .gui.prop_module import initialize_prop_studio
 
 def load_local_props_manifest():
     """
-    Safely reads your raw data file out of your local data/ folder.
-    Returns a blank dictionary fallback if the file is missing or contains a syntax typo.
+    Safely reads your raw data file out of your true local resource/ folder.
     """
-    json_path = os.path.join(_root, "data", "props_config.json")
+    json_path = os.path.join(_root, "resource", "props_config.json")
     if not os.path.exists(json_path):
         print(f"[Prop Studio Core] WARNING: Target data path not found at {json_path}")
         return {}
@@ -30,6 +29,7 @@ def load_local_props_manifest():
     except Exception as e:
         print(f"[Prop Studio Core] ERROR parsing JSON configurations: {e}")
         return {}
+
 
 def initialize_extension(app_reference, glob_reference):
     """

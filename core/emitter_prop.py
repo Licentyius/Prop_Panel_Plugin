@@ -1,6 +1,6 @@
 ######
 #
-# Emitter Prop object type V1.4 Elvaerwyn_MH2 2026
+# Emitter Prop object type V1.5 Elvaerwyn_MH2 2026
 # For use in the prop panel plugin for Makehuman 2
 #
 ######
@@ -41,7 +41,23 @@ class MH2LiveEmitterProp:
         self.particle_texture = raw_json_data.get("particle_texture", "PLAIN")
         self.particle_draw_size = float(raw_json_data.get("particle_draw_size", 6.0))
 
+        # THE SLIDER INTERCEPT PASS: 
+
+        json_phys = raw_json_data.get("physics", {})
+        json_grav = json_phys.get("gravity", {}) if isinstance(json_phys, dict) else {}
+        
+        if isinstance(json_grav, dict):
+            gx = float(json_grav.get("x", 0.0))
+            gy = float(json_grav.get("y", -2.5))
+            gz = float(json_grav.get("z", 0.0))
+            self.gravity = [gx, gy, gz]
+        elif isinstance(json_grav, (list, tuple, np.ndarray)) and len(json_grav) >= 3:
+            self.gravity = [float(json_grav[0]), float(json_grav[1]), float(json_grav[2])]
+        else:
+            self.gravity = [0.0, -2.5, 0.0]
+
         self.world_position = [0.0, 0.814, 0.0]
+
         self.texture = None
         self.obj = None             
         self.mesh_buffers = None    
@@ -93,7 +109,7 @@ class MH2LiveEmitterProp:
                 self.render.setZRotation(p.rotation[2])
                 self.render.draw(proj_view_matrix, campos, self.light, False)
             except Exception:
-                pass # Fail silently on corrupted frames to protect the timeline execution pulse
+                pass # For Now Fail silently on corrupted frames to protect the timeline execution pulse
 
     def newParticles(self, cnt):
         for _ in range(cnt):
@@ -134,19 +150,35 @@ class MH2LiveEmitterProp:
         if self.parented:
             self.world_position = self.getBonePosition()
 
-        # 2. Spawn particles up to current master manifest cap limit
+        # 2. Spawn particles up to current master manifest cap limit this needs evaluation
         if len(self.particles_pool) < int(self.max_particles):
             self.newParticles(new)
 
         # 3. Apply a stable physics frame delta step calculation
         dt = float(progress) if (progress and float(progress) > 0.0) else 0.033
 
+        # THE REAL-TIME GRAPHICS VALVE BRIDGE:
+        from mh2_official_tools.prop_panel.core.particle_engine import live_particle_system
+        
+        gx, gy, gz = 0.0, -2.5, 0.0
+        prop_key = str(getattr(self, 'prop_id', self.name)).strip().lower()
+        
+        if hasattr(live_particle_system, 'global_gravity_vectors') and prop_key in live_particle_system.global_gravity_vectors:
+            live_vector = live_particle_system.global_gravity_vectors[prop_key]
+            gx, gy, gz = float(live_vector[0]), float(live_vector[1]), float(live_vector[2])
+
         # 4. Progress coordinates smoothly forward along velocity vectors
         for p in self.particles_pool:
             p.update(dt)          
+            
+            # Apply the true live slider weights directly onto the moving sub-particles!
+            p.vx += gx * dt
+            p.vy += (gy + 2.5) * dt  # Counterbalances the baseline hardcoded -2.5 drop smoothly
+            p.vz += gz * dt
 
         self.flushDead()
         self.poolCopy()
+
 
     def startOpenGL(self):
         gl.glPushMatrix()
@@ -156,14 +188,31 @@ class MH2LiveEmitterProp:
         gl.glEnable(gl.GL_NORMALIZE)
 
     def finishOpenGL(self):
+        """Forces Python arrays into contiguous C-compatible hardware memory pointers to let the GPU parse moving coordinate vertices in real time without collapsing!"""
         if hasattr(self, 'particles') and self.particles is not None and len(self.particles) > 0:
-            gl.glEnableClientState(gl.GL_VERTEX_ARRAY)
-            gl.glVertexPointer(3, gl.GL_FLOAT, 0, self.particles)
-            gl.glDrawArrays(gl.GL_POINTS, 0, len(self.particles) // 3)
-            gl.glDisableClientState(gl.GL_VERTEX_ARRAY)
+            try:
+                # THE HARDWARE BUFFER portal: 
+                # Force the NumPy array variables into a strict, contiguous flat sequence
+                c_contiguous_array = np.ascontiguousarray(self.particles, dtype=np.float32)
+                
+                # Extract the direct low-level physical system memory address pointer
+                import ctypes
+                vertex_data_pointer = c_contiguous_array.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+                
+                gl.glEnableClientState(gl.GL_VERTEX_ARRAY)
+                
+                # Explicitly pass the true memory address location to the GPU graphics drivers
+                gl.glVertexPointer(3, gl.GL_FLOAT, 0, vertex_data_pointer)
+                gl.glDrawArrays(gl.GL_POINTS, 0, len(self.particles) // 3)
+                
+                gl.glDisableClientState(gl.GL_VERTEX_ARRAY)
+            except Exception as hardware_fault:
+                print(f"[Prop Studio Buffer Error] Vertex stream allocation collapsed: {hardware_fault}")
+                
         gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
         gl.glPopAttrib()
         gl.glPopMatrix()
+
 
     def drawDustParticles(self):
         self.startOpenGL()
@@ -213,7 +262,7 @@ class MH2LiveEmitterProp:
         except Exception as e:
             print(f"[Prop Studio Render Warning] Tex Sprite execution failed: {e}")
         finally:
-            # Guarantees that OpenGL pops states even if an asset lookup glitches!
+            # Guarantees that OpenGL pops states even if an asset lookup glitches, needs attention!
             self.finishOpenGL()
 
     def drawBillboards(self, campos):
@@ -303,30 +352,44 @@ class MH2PropParticle:
         else:
             self.color = [1.0, 0.4, 0.0, 1.0]
         
-        # High-velocity trajectories to shoot them into viewport space
+        # THE VELOCITY MIXER PLUG:
+        s_min = getattr(emitter, 'speed_min', 4.5)
+        s_max = getattr(emitter, 'speed_max', 9.0)
+        
         self.vx = random.uniform(-0.5, 0.5)
-        self.vy = random.uniform(4.5, 9.0)  
+        self.vy = random.uniform(float(s_min), float(s_max))  
         self.vz = random.uniform(-0.5, 0.5)
 
         self.rotation = [random.uniform(0, 360), random.uniform(0, 360), random.uniform(0, 360)]
         self.scale = [0.1, 0.1, 0.1]
         self.lifetime = 0.0
-        self.lifespan = random.uniform(0.6, 1.5)
+        
+        # Link particle decay times straight to the dynamic panel limits!
+        self.lifespan = float(getattr(emitter, 'particle_lifespan_limit', random.uniform(0.6, 1.5)))
+
 
     def is_dead(self):
         return self.lifetime > self.lifespan
 
     def update(self, span):
-        """Unified particle physics updater advances coordinates along velocity vectors."""
-        # Use a constant fallback fraction to bypass any framework thread delays
+        """Unified particle physics updater advances coordinates along live mixer vectors dynamically."""
         dt = 0.033
 
         self.lifetime += dt
         
-        # Advance positions forward along their velocity vectors
+        # Advance coordinates forward along current velocity vector headings
         self.x += self.vx * dt
         self.y += self.vy * dt  
         self.z += self.vz * dt
         
-        # Apply stable down-axis gravity drag over time frames
-        self.vy -= 2.5 * dt
+        # Break the hardcoded -2.5 lock and read straight from the parent list!
+        if hasattr(self, 'emitter') and self.emitter and hasattr(self.emitter, 'gravity'):
+            parent_grav = self.emitter.gravity
+            if isinstance(parent_grav, (list, tuple, np.ndarray)) and len(parent_grav) >= 3:
+                self.vx += float(parent_grav[0]) * dt
+                self.vy += float(parent_grav[1]) * dt
+                self.vz += float(parent_grav[2]) * dt
+            else:
+                self.vy -= 2.5 * dt
+        else:
+            self.vy -= 2.5 * dt

@@ -1,6 +1,6 @@
 ######
 #
-# Prop Renderer V1.7 (Restored Build)
+# Prop Renderer V1.8 (Restored Build V1)
 # Part of the MakeHuman 2 Project contributed by Elvaerwyn_MH2 2026
 #
 ######
@@ -18,7 +18,6 @@ TEXTURE_CACHE_REPOS = {}
 def inject_particle_gl_draw_pass(glob, custom_props_list):
     """
     Renders particle streams dynamically across active memory buffers,
-    binding true alpha quads instead of raw un-masked point squares.
     """
     def internal_load_texture(glob_reference, relative_image_path):
         if not relative_image_path or relative_image_path == "PLAIN":
@@ -68,7 +67,7 @@ def inject_particle_gl_draw_pass(glob, custom_props_list):
             continue
 
         raw_mode = str(getattr(prop, 'emitter_mode', 'PARTICLES')).upper().strip()
-        mode = raw_mode.replace(" ", "_").replace("-", "_"))
+        mode = raw_mode.replace(" ", "_").replace("-", "_")
         if prop.emitter and mode == "PHYSICAL_MESH":
             continue
 
@@ -136,38 +135,62 @@ def inject_particle_gl_draw_pass(glob, custom_props_list):
                 gl.glEnable(gl.GL_POINT_SPRITE)
                 gl.glTexEnvi(gl.GL_POINT_SPRITE, gl.GL_COORD_REPLACE, gl.GL_TRUE)
                 
-
                 gl.glEnable(gl.GL_DEPTH_TEST)   # Read where the character is standing
-                gl.glDepthMask(gl.GL_FALSE)     # 🚀 THE FIX: Stop writing solid depth paths!
+                gl.glDepthMask(gl.GL_FALSE)     # Stop writing solid depth paths!
                 
                 gl.glEnable(gl.GL_TEXTURE_2D)
                 gl.glBindTexture(gl.GL_TEXTURE_2D, active_tex_id)
 
                 gl.glTexEnvi(gl.GL_TEXTURE_ENV, gl.GL_TEXTURE_ENV_MODE, gl.GL_MODULATE)
                 
-
                 gl.glDisable(gl.GL_ALPHA_TEST)
                 
                 quad_size = (size if size > 0.0 else 48.0) * 0.001
 
-                
                 # BLIT INDIVIDUAL ALPHA TEXTURE QUADS DIRECTLY 
                 gl.glBegin(gl.GL_QUADS)
-                for idx in range(0, len(vertices), 3):
+                
+                # THE DIRECT DATA CONNECTOR:
+                prop_id = getattr(prop, 'prop_id', getattr(prop, 'name', 'ball')).strip().lower()
+                
+                active_vertices = []
+                if hasattr(live_particle_system, 'extract_flat_vertex_array'):
+                    active_vertices = live_particle_system.extract_flat_vertex_array(prop_id)
+                    
+                # Safe fallback if the extraction array hits a character case mismatch slot
+                if not active_vertices and prop_id in live_particle_system.emitter_pools:
+                    pool_nodes = live_particle_system.emitter_pools[prop_id]
+                    for node in pool_nodes:
+                        if isinstance(node, dict) and "pos" in node:
+                            active_vertices.extend([float(n) for n in node["pos"]])
+                        elif isinstance(node, dict) and "coord" in node:
+                            active_vertices.extend([float(n) for n in node["coord"]])
+
+                # Legacy absolute object array fallback remains active if custom pools are empty
+                if not active_vertices and len(vertices) > 0:
+                    active_vertices = vertices
+
+                quad_size = (size if size > 0.0 else 48.0) * 0.001
+
+                for idx in range(0, len(active_vertices), 3):
+                    if idx + 2 >= len(active_vertices):
+                        break
+                        
                     gl.glColor4f(r, g, b, a)
-                    px, py, pz = vertices[idx], vertices[idx+1], vertices[idx+2]
+                    px = active_vertices[idx]
+                    py = active_vertices[idx+1]
+                    pz = active_vertices[idx+2]
                     
                     gl.glTexCoord2f(0.0, 0.0); gl.glVertex3f(px - quad_size, py - quad_size, pz)
                     gl.glTexCoord2f(1.0, 0.0); gl.glVertex3f(px + quad_size, py - quad_size, pz)
                     gl.glTexCoord2f(1.0, 1.0); gl.glVertex3f(px + quad_size, py + quad_size, pz)
                     gl.glTexCoord2f(0.0, 1.0); gl.glVertex3f(px - quad_size, py + quad_size, pz)
                 gl.glEnd()
-                
-                # =====================================================================
+
+
+                # ===============================================================
                 # UNIFIED SHADER ALIGNMENT PASS (The "Borrow and Return" Policy)
-                # Safely wipes out texture registers and forces a complete master shader 
-                # re-bind BEFORE popping attributes for driver stability!
-                # =====================================================================
+                # ===============================================================
                 gl.glActiveTexture(gl.GL_TEXTURE0)
                 gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
                 gl.glUseProgram(0)  # Empty the active shader registers completely first
@@ -186,7 +209,6 @@ def inject_particle_gl_draw_pass(glob, custom_props_list):
                 continue
 
             else:
-
                 gl.glActiveTexture(gl.GL_TEXTURE0)
                 gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
                 gl.glUseProgram(0)  # Reset the hardware shader pipeline registry!
@@ -196,7 +218,6 @@ def inject_particle_gl_draw_pass(glob, custom_props_list):
                 
                 mode = "PARTICLES"
 
-
         # MODE 2: FLAT SOLID SPRITES
         if mode == "SPRITES":
             gl.glEnable(gl.GL_BLEND)
@@ -205,8 +226,6 @@ def inject_particle_gl_draw_pass(glob, custom_props_list):
             gl.glEnable(gl.GL_POINT_SPRITE)
             gl.glTexEnvi(gl.GL_POINT_SPRITE, gl.GL_COORD_REPLACE, gl.GL_TRUE)
             gl.glPointSize(size if size > 6.0 else 16.0)
-            gl.glColor4f(r, g, b, a)
-
         # MODE 1: PURE DUST
         if mode == "PARTICLES":
             gl.glDisable(gl.GL_TEXTURE_2D)
@@ -221,10 +240,9 @@ def inject_particle_gl_draw_pass(glob, custom_props_list):
         gl.glVertexPointer(3, gl.GL_FLOAT, 0, vertex_data)
         gl.glDrawArrays(gl.GL_POINTS, 0, len(vertex_data) // 3)
 
-        # =====================================================================
+        # ================================
         # FINAL PIPELINE TEARDOWN COALESCE
-        # Clean up client arrays and hand back control to the engine cleanly
-        # =====================================================================
+        # ================================
         gl.glDisableClientState(gl.GL_VERTEX_ARRAY)
         
         gl.glActiveTexture(gl.GL_TEXTURE0)
@@ -239,3 +257,4 @@ def inject_particle_gl_draw_pass(glob, custom_props_list):
         if pipeline_manager and hasattr(pipeline_manager, 'setShader'):
             pipeline_manager.setShader()
 
+PropRenderer = inject_particle_gl_draw_pass
