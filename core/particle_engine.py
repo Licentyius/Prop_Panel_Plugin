@@ -1,6 +1,6 @@
 ######
 #
-# Particle Engine for the Emitter system in Prop Panel V1.7
+# Particle Engine for the Emitter system in Prop Panel V1.8
 # Contributed to Makehuman 2 by Elvaerwyn_MH2 2026
 #
 ######
@@ -61,37 +61,46 @@ class PrimitiveParticleEngine:
             except Exception:
                 flat_pos = [0.0, 0.814, 0.0]
 
-            # 🟢 PRIORITIZE RUNTIME OBJECT POOLS: 
-            # Completely skips file-dependency checks during physics passes! Reads straight from sliders.
-            gx, gy, gz = 0.0, -2.5, 0.0
-            s_min, s_max = 1.5, 4.5
+            # 1. Fetch values directly from live UI mixers instead of falling back to constants
+            gx = float(getattr(prop, 'mixer_grav_x_value', 0.0))
+            gy = float(getattr(prop, 'mixer_grav_y_value', -2.5))
+            gz = 0.0
 
+            # Access initial speed configurations out of the active JSON profiles securely
+            s_min = 1.5
+            s_max = 4.5
             if p_emitter:
-                live_grav = getattr(p_emitter, 'gravity', None)
-                if isinstance(live_grav, (list, tuple, np.ndarray)) and len(live_grav) >= 3:
-                    gx = float(live_grav[0])
-                    gy = float(live_grav[1])
-                    gz = float(live_grav[2])
-                
-                # Check for direct speed attributes saved by your sliders
                 s_min = float(getattr(p_emitter, 'speed_min', s_min))
                 s_max = float(getattr(p_emitter, 'speed_max', s_max))
 
-            # 1. Spawn points utilizing your dynamic speed limits natively
+            # Fetch active conical spray angles natively
+            spread_angle = float(getattr(prop, 'mixer_spread_angle_value', 15.0))
+            rad_spread = np.radians(spread_angle)
+
+            # 2. Spawn point generator loop handles both tracking channels smoothly
             if is_emitting and len(self.emitter_pools[prop_id]) < int(p_emitter.max_particles):
-                for _ in range(4): 
-                    y_speed = random.uniform(s_min, s_max)
-                    if gy < -5.0:  # If high down-force is active, burst them outwards/downwards naturally
-                        y_speed = random.uniform(-s_max, -s_min)
+                # Calculate system burst rates dynamically based on limits
+                burst_count = 4 if int(p_emitter.max_particles) > 300 else 2
+                
+                for _ in range(burst_count): 
+                    # Calculate vector spreads matching your conical angle parameters
+                    angle_offset = random.uniform(-rad_spread, rad_spread)
+                    vx = random.uniform(-0.5, 0.5) + np.sin(angle_offset) * s_min
+                    vy = random.uniform(s_min, s_max)
+                    vz = random.uniform(-0.5, 0.5)
+
+                    if gy < -5.0:  # Active high-gravity downward flow selector (Shower Mode)
+                        vy = random.uniform(-s_max, -s_min)
                         
                     self.emitter_pools[prop_id].append({
                         "pos": [float(flat_pos[0]), float(flat_pos[1]), float(flat_pos[2])],
-                        "vel": np.array([random.uniform(-0.5, 0.5), y_speed, random.uniform(-0.5, 0.5)], dtype=np.float32),
+                        "vel": np.array([vx, vy, vz], dtype=np.float32),
                         "age": 0.0,
-                        "life": random.uniform(0.6, 2.0)
+                        "life": random.uniform(0.6, getattr(p_emitter, 'particle_lifespan_limit', 1.5))
                     })
 
-            # 2. Iterate physics and apply gravity vectors dynamically
+
+            # 3. Iterate physics and apply gravity vectors dynamically
             for p in self.emitter_pools[prop_id]:
                 p["age"] += dt
                 p["pos"] += p["vel"] * dt  
@@ -99,15 +108,14 @@ class PrimitiveParticleEngine:
                 p["vel"][1] += gy * dt
                 p["vel"][2] += gz * dt
 
-            # 3. Clean spent data components out of memory allocations
+            # 4. Clean spent data components out of memory allocations
             self.emitter_pools[prop_id] = [p for p in self.emitter_pools[prop_id] if p["age"] < p["life"]]
 
-            # 4. Flatten the coordinates directly for the shader pipeline
+            # 5. Flatten the coordinates directly for the shader pipeline
             flat_vertices = []
             for p in self.emitter_pools[prop_id]:
                 flat_vertices.extend([float(p["pos"][0]), float(p["pos"][1]), float(p["pos"][2])])
             p_emitter.particles = flat_vertices
-
 
     def extract_flat_vertex_array(self, prop_id):
         """

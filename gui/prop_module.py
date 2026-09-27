@@ -1,5 +1,5 @@
 """
-Prop Module v2.8a (Unified Edition V2).
+Prop Module v2.9 (Unified Edition V2).
 Part of the MakeHuman 2 Project contributed by Elvaerwyn_MH2 2026.
 """
 
@@ -1452,8 +1452,10 @@ class PropManagerPanel(MHGroupBox):
         # Keep it visible to control playback globally
         self.fx_playback_group.setVisible(True)
 
+# Replace the execute_master_heartbeat_pulse method inside gui/prop_module.py with this setup:
+
     def execute_master_heartbeat_pulse(self):
-        """Unified system heartbeat pumps FSM ticks and particle physics calculations."""
+        """Unified frame heartbeat loop pumps FSM tracks and simulation states without overlapping."""
         # 1. Pump the state machine transition pipelines
         if hasattr(self, 'pump_state_machine_tick'):
             try:
@@ -1461,43 +1463,37 @@ class PropManagerPanel(MHGroupBox):
             except Exception:
                 pass
             
-        # ======================
-        # THE TIMELINE PLUG: 
-        # ======================
+        # 2. Main Simulation router pass
         try:
             props_list = getattr(self.glob, 'custom_props_list', [])
             if props_list:
                 from ..core.particle_engine import live_particle_system
                 
-                # Active tick call pumps the velocity vectors and physics calculations!
+                # Push active mixer attributes straight onto running objects before updating physics
+                for prop in props_list:
+                    prop.mixer_grav_y_value = self.mixer_grav_y.value()
+                    prop.mixer_grav_x_value = self.mixer_grav_x.value()
+                    prop.mixer_spread_angle_value = self.mixer_spread_angle.value()
+
+                # One single physics pass updates calculations for both systems cleanly
                 live_particle_system.tick_physics(props_list)
                 
-                # Update loop states on active emitter objects
+                # Synchronize coordinate arrays directly with the active renderer buffers
                 for prop in props_list:
                     if getattr(prop, 'is_emitting', True) and hasattr(prop, 'emitter') and prop.emitter:
+                        prop_id = getattr(prop, 'prop_id', getattr(prop, 'name', 'ball')).strip().lower()
                         
-                        # THE PURE EMITTER INTERCEPT SHIELD:
-                        # If this asset is a pure JSON emitter (lacks an obj mesh file descriptor),
-                        # skip the old hardcoded C++ loop entirely and bind the active physics stream!
-                        if not hasattr(prop, 'mesh_reference') or prop.mesh_reference is None:
-                            prop_id = getattr(prop, 'prop_id', getattr(prop, 'name', 'ball')).strip().lower()
-                            if hasattr(live_particle_system, 'extract_flat_vertex_array'):
-                                # Assign the live streaming coordinates directly to the draw handle
-                                prop.emitter.particles = live_particle_system.extract_flat_vertex_array(prop_id)
-                            continue  # 🚀 SUCCESS: Skips the old loop so it CANNOT overwrite your data!
-                        
-                        # Standard fallback remains active for mesh-based emitters
-                        if hasattr(prop.emitter, 'loop'):
-                            prop.emitter.loop(2, 0.033)
-                            
+                        if hasattr(live_particle_system, 'extract_flat_vertex_array'):
+                            # Extracts clean flat arrays, bypassing old class loop collisions completely
+                            prop.emitter.particles = live_particle_system.extract_flat_vertex_array(prop_id)
+                                
         except Exception as e:
-            print(f"[Prop Studio Heartbeat Warning] Simulation pump failed: {e}")
+            print(f"[Prop Studio Engine Safe Shield] Heartbeat loop caught: {e}")
 
-        # Command the OpenGL viewport window to refresh and repaint the scene
+        # Command the OpenGL viewport window to refresh and repaint the canvas
         if self.glob and getattr(self.glob, 'openGLWindow', None):
             if hasattr(self.glob.openGLWindow, 'update'):
                 self.glob.openGLWindow.update()
-
 
     # =====================================================================
     # LIVE FX INJECTION VALVE
@@ -1887,45 +1883,46 @@ class PropManagerPanel(MHGroupBox):
     # Natively mutates physics vectors on the fly!
     # =============================================
     def update_mixer_gravity_y(self, value):
-        """Live updates the vertical jet vector inside index 1 of the gravity list array cleanly."""
+        """Live updates the vertical force vector track and commits changes cleanly to disk."""
         if self.current_prop and not self.is_updating_ui:
             if hasattr(self.current_prop, 'emitter') and self.current_prop.emitter:
-                emitter = self.current_prop.emitter
+                self.current_prop.emitter.gravity[1] = float(value)
                 
-                # Check for list array types before indexing parameters
-                if not hasattr(emitter, 'gravity') or not isinstance(emitter.gravity, list) or len(emitter.gravity) < 3:
-                    emitter.gravity = [0.0, -2.5, 0.0]
-                
-                # DIRECT PASS: Overwrite index 1 explicitly to protect the variable arrays!
-                emitter.gravity[1] = float(value)
-                
-                prop_id = getattr(self.current_prop, 'prop_id', getattr(self.current_prop, 'name', 'ball')).strip().lower()
-                print(f"[Mixer EQ Link] Vertical force updated to: {value} m/s² for: {prop_id}")
-                self._trigger_viewport_redraw()
+                prop_id_key = getattr(self.current_prop, 'prop_id', getattr(self.current_prop, 'name', '')).strip().lower()
+                if prop_id_key:
+                    # Update deep nested json keys safely matching your layout schema structures
+                    update_prop_json_entry(prop_id_key, {
+                        "physics": {
+                            "gravity": {"y": float(value)}
+                        }
+                    })
+            self._trigger_viewport_redraw()
 
     def update_mixer_gravity_x(self, value):
-        """Live updates the crosswind drift vector inside index 0 of the gravity list array cleanly."""
+        """Live updates the crosswind force vector track and commits changes cleanly to disk."""
         if self.current_prop and not self.is_updating_ui:
             if hasattr(self.current_prop, 'emitter') and self.current_prop.emitter:
-                emitter = self.current_prop.emitter
+                self.current_prop.emitter.gravity[0] = float(value)
                 
-                if not hasattr(emitter, 'gravity') or not isinstance(emitter.gravity, list) or len(emitter.gravity) < 3:
-                    emitter.gravity = [0.0, -2.5, 0.0]
-                
-                # DIRECT PASS: Overwrite index 0 explicitly to protect the variable arrays!
-                emitter.gravity[0] = float(value)
-                
-                prop_id = getattr(self.current_prop, 'prop_id', getattr(self.current_prop, 'name', 'ball')).strip().lower()
-                print(f"[Mixer EQ Link] Horizontal force updated to: {value} m/s² for: {prop_id}")
-                self._trigger_viewport_redraw()
+                prop_id_key = getattr(self.current_prop, 'prop_id', getattr(self.current_prop, 'name', '')).strip().lower()
+                if prop_id_key:
+                    update_prop_json_entry(prop_id_key, {
+                        "physics": {
+                            "gravity": {"x": float(value)}
+                        }
+                    })
+            self._trigger_viewport_redraw()
 
     def update_mixer_spread_angle(self, value):
-        """Live constraints spray cones tighter or wider on the fly."""
+        """Live constrains spray cones tighter or wider on the fly and saves configurations."""
         if self.current_prop and not self.is_updating_ui:
             if hasattr(self.current_prop, 'emitter') and self.current_prop.emitter:
                 self.current_prop.emitter.spread_angle = float(value)
-                print(f"[Mixer EQ] Spray angle boundary opened to: {value}°")
-
+                
+                prop_id_key = getattr(self.current_prop, 'prop_id', getattr(self.current_prop, 'name', '')).strip().lower()
+                if prop_id_key:
+                    update_prop_json_entry(prop_id_key, {"spread_angle": float(value)})
+            self._trigger_viewport_redraw()
 
     def setLeftPanel(self, panel):
         """Links the numeric coordinate input forms to this panel manager."""

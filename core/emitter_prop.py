@@ -120,22 +120,36 @@ class MH2LiveEmitterProp:
 
     def poolCopy(self):
         """
-        Extract individual scalar elements by index explicitly!
+        SAFE EXTRACTION VALVE:
+        Extracts coordinate vectors by numeric index locations, preventing 
+        NumPy attribute errors when a prop locks onto a character joint.
         """
         flat_list = []
         for part in self.particles_pool:
             try:
-                # Unpack the absolute coordinate positions cleanly by their index properties
-                px = float(part.x[0]) if hasattr(part.x, '__getitem__') else float(part.x)
-                py = float(part.y[1]) if hasattr(part.y, '__getitem__') else float(part.y)
-                pz = float(part.z[2]) if hasattr(part.z, '__getitem__') else float(part.z)
+                # 1. First, check if the tracking element is wrapped as an explicit dictionary node
+                if isinstance(part, dict):
+                    coord_vec = part.get("pos", part.get("coord", [0.0, 0.0, 0.0]))
+                else:
+                    # 2. Check if the element stores attributes as direct property sequences
+                    coord_vec = getattr(part, 'pos', getattr(part, 'x', [0.0, 0.0, 0.0]))
                 
+                # 3. Safely parse the position scalars using strict item indices
+                if hasattr(coord_vec, '__getitem__') or isinstance(coord_vec, (list, tuple, np.ndarray)):
+                    px = float(coord_vec[0])
+                    py = float(coord_vec[1])
+                    pz = float(coord_vec[2])
+                else:
+                    # Final scalar fallback if values arrive unwrapped
+                    px = py = pz = float(coord_vec)
+                    
                 flat_list.extend([px, py, pz])
-            except Exception:
-                # Direct scalar fallback if the vectors are single floats
-                flat_list.extend([float(part.x), float(part.y), float(part.z)])
+                
+            except Exception as e:
+                # Fill missing coordinates with zero placeholders to keep the canvas pipeline active
+                flat_list.extend([0.0, 0.814, 0.0])
             
-        # Convert the continuous 1D sequence safely into the contiguous array structure
+        # Convert the contiguous data stream safely into a flat hardware array pointer layout
         self.particles = np.array(flat_list, dtype=np.float32)
 
     def getBonePosition(self):
@@ -287,16 +301,16 @@ class MH2LiveEmitterProp:
             gl.glBegin(gl.GL_QUADS)
             for p in self.particles_pool:
                 try:
-
-                    if hasattr(p, 'x') and not isinstance(p, (np.ndarray, list, tuple)):
-                        px, py, pz = float(p.x), float(p.y), float(p.z)
-                    elif isinstance(p, dict) and "pos" in p:
-                        v = p["pos"]
-                        px, py, pz = float(v[0]), float(v[1]), float(v[2])
-                    elif hasattr(p, '__getitem__') or isinstance(p, (np.ndarray, list, tuple)):
-                        px, py, pz = float(p[0]), float(p[1]), float(p[2])
+                    # Extract positions using safe data structure checks
+                    if isinstance(p, dict):
+                        v = p.get("pos", p.get("coord", [0.0, 0.0, 0.0]))
                     else:
-                        continue
+                        v = getattr(p, 'pos', getattr(p, 'x', p))
+
+                    if hasattr(v, '__getitem__') or isinstance(v, (list, tuple, np.ndarray)):
+                        px, py, pz = float(v[0]), float(v[1]), float(v[2])
+                    else:
+                        px = py = pz = float(v)
 
                     gl.glColor4f(1.0, 1.0, 1.0, 1.0)
                     
@@ -311,6 +325,7 @@ class MH2LiveEmitterProp:
                 except Exception:
                     pass
             gl.glEnd()
+
         except Exception as e:
             print(f"[Prop Studio Debug] Billboard render cycle failed: {e}")
         finally:
