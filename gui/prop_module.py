@@ -1,5 +1,5 @@
 """
-Prop Module v2.9 (Unified Edition V2).
+Prop Module v3.0 (Unified Edition V2).
 Part of the MakeHuman 2 Project contributed by Elvaerwyn_MH2 2026.
 """
 
@@ -1231,149 +1231,179 @@ class PropManLeftPanel(QWidget):
         return sb
 
 class PropManagerPanel(MHGroupBox):
-    """The central manager panel containing FSM states, toggles, and deletion loops."""
+    """
+    The finalized master control panel for Prop Studio.
+    Orchestrates skeletal rig workflows, advanced physics mixers, and file serialization.
+    """
     def __init__(self, parent):
-        super().__init__("Prop Manager")
+        super().__init__("Prop Studio Hub")
         self.parent = parent 
         self.glob = getattr(parent, 'glob', None)
-
-        import sys
-        sys.active_prop_studio_panel_address = self
-
         self.central_widget = getattr(parent, 'central_widget', getattr(parent, 'centralWidget', self))
-        
         self.env = self.glob.env
-
         self.view = getattr(parent, 'graph', None).view if hasattr(parent, 'graph') else None
+        
         self.current_prop = None 
         self.leftPanel = None
         self.is_updating_ui = False
         
-        layout = QVBoxLayout()
-        self.setLayout(layout)
+        # Base Master Layout Container
+        master_layout = QVBoxLayout()
+        self.setLayout(master_layout)
 
-        self.visibility_toggle = QCheckBox("Prop Visible in Viewport")
-        self.visibility_toggle.setChecked(True)
-        self.visibility_toggle.stateChanged.connect(self.toggle_visibility)
-        layout.addWidget(self.visibility_toggle)
-
+        # ===========================================
+        # DIAGNOSTIC INFO & POSE ATTACHMENT TRACKER
+        # ===========================================
+        info_group = MHGroupBox("Asset Hierarchy Status")
+        info_layout = QVBoxLayout()
+        
         self.dock_lock_checkbox = QCheckBox("🔒 Lock Workspace Panel Position")
         self.dock_lock_checkbox.setChecked(False)
-        
-        def handle_dock_lock_click(state):
-            is_checked = (state == 2)
-            from .prop_module import _standalone_studio_dock_instance
-            if _standalone_studio_dock_instance:
-                lock_func = _standalone_studio_dock_instance.property("set_dock_locked")
-                if lock_func:
-                    lock_func(is_checked)
-                    
-        self.dock_lock_checkbox.stateChanged.connect(handle_dock_lock_click)
-        layout.addWidget(self.dock_lock_checkbox)
+        self.dock_lock_checkbox.stateChanged.connect(self._handle_dock_layout_lock)
+        info_layout.addWidget(self.dock_lock_checkbox)
 
-        self.parent_toggle = QCheckBox("Enable Bone Parenting")
+        self.parent_toggle = QCheckBox("Enable Active Bone Parenting")
         self.parent_toggle.stateChanged.connect(self.toggle_parenting)
-        layout.addWidget(self.parent_toggle)
+        info_layout.addWidget(self.parent_toggle)
 
-        self.bone_label = QLabel("Target Bone Connection:")
-        layout.addWidget(self.bone_label)
-
+        info_layout.addWidget(QLabel("Target Joint Connection Slot:"))
         self.bone_selector = QComboBox()
         self.bone_selector.addItems(["None", "head", "hand_L", "hand_R", "foot_L", "foot_R", "spine_03"])
         self.bone_selector.setEnabled(False)
         self.bone_selector.currentIndexChanged.connect(self.findBonePosition)
-        layout.addWidget(self.bone_selector)
+        info_layout.addWidget(self.bone_selector)
 
         self.state_label = QLabel("Current State Pipeline: IDLE")
-        layout.addWidget(self.state_label)
+        self.state_label.setStyleSheet("font-weight: bold; color: #a1a1aa; padding-top: 4px;")
+        info_layout.addWidget(self.state_label)
+        
+        info_group.setLayout(info_layout)
+        master_layout.addWidget(info_group)
+
+        # ============================================================
+        # GROUP 1: ASSET RIG ACTIONS (Rig & FX Converted Buttons)
+        # ============================================================
+        rig_actions_group = MHGroupBox("Skeletal Rig & FX Actions")
+        rig_layout = QVBoxLayout()
 
         self.equip_trigger_btn = QPushButton("Action: Equip Selected Prop")
         self.equip_trigger_btn.clicked.connect(lambda: self.prop_fsm.transition_to(self.current_prop.name, "EQUIPPING") if self.current_prop else None)
-        self.equip_trigger_btn.setStyleSheet("background-color: #2b8f5c; color: white; font-weight: bold; padding: 5px;")
-        layout.addWidget(self.equip_trigger_btn)
+        self.equip_trigger_btn.setStyleSheet("background-color: #2b8f5c; color: white; font-weight: bold; padding: 6px;")
+        rig_layout.addWidget(self.equip_trigger_btn)
 
-        # =====================================================================
-        # THE LIVE PARTICLE EMITTER ATTACHMENT TRIGGER
-        # Instantly converts a flat STATIC mesh into a live particle system on the fly
-        # Also Removes systems from live objects.
-        # =====================================================================
         self.attach_fx_btn = QPushButton("✨ Add Particle System to Asset")
         self.attach_fx_btn.clicked.connect(self.attach_live_emitter_on_the_fly)
-        self.attach_fx_btn.setStyleSheet("background-color: #A23D81; color: white; font-weight: bold; padding: 5px;")
-        layout.addWidget(self.attach_fx_btn)
+        self.attach_fx_btn.setStyleSheet("background-color: #1e828a; color: white; font-weight: bold; padding: 5px;")
+        rig_layout.addWidget(self.attach_fx_btn)
 
         self.remove_fx_btn = QPushButton("❌ Remove Particle System from Asset")
         self.remove_fx_btn.clicked.connect(self.remove_live_emitter_on_the_fly)
-        self.remove_fx_btn.setStyleSheet("background-color: #8b2500; color: white; font-weight: bold; padding: 5px;")
-        layout.addWidget(self.remove_fx_btn)
-        # =====================================================================
+        self.remove_fx_btn.setStyleSheet("background-color: #c2591b; color: white; font-weight: bold; padding: 5px;")
+        rig_layout.addWidget(self.remove_fx_btn)
 
-        self.save_btn = QPushButton("Save Transform to JSON")
+        rig_actions_group.setLayout(rig_layout)
+        master_layout.addWidget(rig_actions_group)
 
+        # =================================================================
+        # GROUP 2: FILE I/O & SERIALIZATION (Save & Scene Multi-Exporters)
+        # =================================================================
+        file_group = MHGroupBox("File Serialization & Exporters")
+        file_layout = QVBoxLayout()
+
+        self.save_btn = QPushButton("Save Transform Configuration to JSON")
         self.save_btn.clicked.connect(self.save_prop_data)
         self.save_btn.setStyleSheet("padding: 5px;")
-        layout.addWidget(self.save_btn)
+        file_layout.addWidget(self.save_btn)
 
-        self.drop_all_btn = QPushButton("💥 Drop All Active Assets")
-        self.drop_all_btn.clicked.connect(self.drop_all_workspace_assets)
-        self.drop_all_btn.setStyleSheet("background-color: #6a5acd; color: white; font-weight: bold; padding: 5px;")
-        layout.addWidget(self.drop_all_btn)
-
-        self.remove_all_btn = QPushButton("🗑️ Remove All Props from Room")
-        self.remove_all_btn.clicked.connect(self.execute_remove_all_button_logic)
-        self.remove_all_btn.setStyleSheet("background-color: #d9534f; color: white; font-weight: bold; padding: 5px;")
-        layout.addWidget(self.remove_all_btn)
-
-        self.remove_btn = QPushButton("❌ Remove Selected Prop")
-        self.remove_btn.clicked.connect(self.remove_current_prop)
-        self.remove_btn.setStyleSheet("background-color: #a13d3d; color: white; font-weight: bold; padding: 5px;")
-        layout.addWidget(self.remove_btn)
-
-        self.export_scene_btn = QPushButton("📦 Export Full 3D Prop Scene")
+        self.export_scene_btn = QPushButton("📦 Export Full 3D Prop Scene Layout")
         self.export_scene_btn.setMinimumHeight(32)
-        self.export_scene_btn.setStyleSheet("font-weight: bold; background-color: #A1763D; color: #FFFFFF;")
-        layout.addWidget(self.export_scene_btn)
+        self.export_scene_btn.setStyleSheet("font-weight: bold; background-color: #b58426; color: white;")
         self.export_scene_btn.clicked.connect(self.trigger_addon_exporter)
-
-        self.material_studio_group = MHGroupBox("Material Control Layout")
-        material_studio_layout = QVBoxLayout()
+        file_layout.addWidget(self.export_scene_btn)
 
         self.open_material_maker_btn = QPushButton("🎨 Open Native Material Studio Creator")
         self.open_material_maker_btn.setMinimumHeight(32)
-        self.open_material_maker_btn.setStyleSheet("font-weight: bold; background-color: #4A2D7B; color: #FFFFFF;")
+        self.open_material_maker_btn.setStyleSheet("font-weight: bold; background-color: #4A2D7B; color: white;")
         self.open_material_maker_btn.clicked.connect(self.launch_native_material_maker)
+        file_layout.addWidget(self.open_material_maker_btn)
+
+        file_group.setLayout(file_layout)
+        master_layout.addWidget(file_group)
+
+        # =====================================================
+        # GROUP 3: SCENE PURGE & RESET TOOLS (Destruction Row)
+        # =====================================================
+        purge_group = MHGroupBox("Scene Purge & Destruction Rules")
+        purge_layout = QVBoxLayout()
+
+        self.drop_all_btn = QPushButton("💥 Drop All Active Assets to Floor")
+        self.drop_all_btn.clicked.connect(self.drop_all_workspace_assets)
+        self.drop_all_btn.setStyleSheet("background-color: #6a5acd; color: white; font-weight: bold; padding: 5px;")
+        purge_layout.addWidget(self.drop_all_btn)
+
+        self.remove_all_btn = QPushButton("🚪 Remove All Active Props from Room")
+        self.remove_all_btn.clicked.connect(self.execute_remove_all_button_logic)
+        self.remove_all_btn.setStyleSheet("background-color: #d16b28; color: white; font-weight: bold; padding: 5px;")
+        purge_layout.addWidget(self.remove_all_btn)
+
+        self.remove_btn = QPushButton("❌ Remove Selected Asset")
+        self.remove_btn.clicked.connect(self.remove_current_prop)
+        self.remove_btn.setStyleSheet("background-color: #a13d3d; color: white; font-weight: bold; padding: 5px;")
+        purge_layout.addWidget(self.remove_btn)
+
+        purge_group.setLayout(purge_layout)
+        master_layout.addWidget(purge_group)
+
+        # ==================================================================
+        # GROUP 4: GLOBAL ENGINE CONFIGURATIONS (FPS Friendly Mode Toggles)
+        # ==================================================================
+        engine_group = MHGroupBox("Global Engine Configurations")
+        engine_layout = QVBoxLayout()
         
-        material_studio_layout.addWidget(self.open_material_maker_btn)
+        engine_layout.addWidget(QLabel("<b>FPS Animation Frame Cap Step:</b>"))
+        self.fps_selector = QComboBox()
+        self.fps_selector.addItems(["15 FPS (Eco Mode)", "30 FPS (Standard Mode)", "60 FPS (Precision Matrix)"])
+        self.fps_selector.setCurrentIndex(1) # Default to 30 FPS step
+        self.fps_selector.currentIndexChanged.connect(self.adjust_engine_frame_speed_cap)
+        engine_layout.addWidget(self.fps_selector)
 
-        self.material_studio_group.setLayout(material_studio_layout)
-        layout.addWidget(self.material_studio_group)
+        engine_group.setLayout(engine_layout)
+        master_layout.addWidget(engine_group)
 
-        self.live_particle_tweaks_group = MHGroupBox("Live Particle Emitter Controls")
+        # =================================================
+        # GROUP 5: ADVANCED EMITTER & PHYSICS MIXER MATRIX
+        # =================================================
+        self.live_particle_tweaks_group = MHGroupBox("Advanced Simulation Controls")
         tweaks_layout = QVBoxLayout()
 
-        # 1. THE GHOST EMITTER BUTTON
-        self.ghost_emitter_btn = QPushButton("👻 Toggle Ghost Mode (Hide Solid Mesh)")
+        # --- TWO-TIER VISIBILITY ENGINE PASS ---
+        tweaks_layout.addWidget(QLabel("<b>Render Pipeline Visibility Filters:</b>"))
+        
+        self.visibility_toggle = QCheckBox("Render Element Pass (Global On/Off)")
+        self.visibility_toggle.setChecked(True)
+        self.visibility_toggle.stateChanged.connect(self.toggle_visibility)
+        tweaks_layout.addWidget(self.visibility_toggle)
+
+        self.ghost_emitter_btn = QPushButton("👻 Toggle Ghost Mode (Isolate Particles Only)")
         self.ghost_emitter_btn.setMinimumHeight(28)
         self.ghost_emitter_btn.clicked.connect(self.toggle_ghost_mesh_mode)
         tweaks_layout.addWidget(self.ghost_emitter_btn)
 
-        # 2. ENABLE ACTIVE PARTICLES CHECKBOX
         self.active_emit_cb = QCheckBox("Enable Active Particle Emission Loop")
         self.active_emit_cb.setChecked(True)
         self.active_emit_cb.stateChanged.connect(self.toggle_particle_emission_state)
         tweaks_layout.addWidget(self.active_emit_cb)
 
-        # 3. PARTICLE COUNT / DENSITY SLIDER (SPINBOX)
-        tweaks_layout.addWidget(QLabel("<b>Particle Density Limit / Count:</b>"))
+        # Standard Parameter Modifiers
+        tweaks_layout.addWidget(QLabel("<b>Max Stream Density Cap:</b>"))
         self.density_spin = QDoubleSpinBox()
-        self.density_spin.setRange(1.0, 2000.0)
+        self.density_spin.setRange(10.0, 2000.0)
         self.density_spin.setSingleStep(25.0)
         self.density_spin.setDecimals(0)
         self.density_spin.valueChanged.connect(self.update_live_particle_density)
         tweaks_layout.addWidget(self.density_spin)
 
-        # 4. PARTICLE DRAW SIZE SLIDER (SPINBOX)
-        tweaks_layout.addWidget(QLabel("<b>Particle Point Draw Size:</b>"))
+        tweaks_layout.addWidget(QLabel("<b>Viewport Point Draw Weight / Scale:</b>"))
         self.size_spin = QDoubleSpinBox()
         self.size_spin.setRange(0.1, 500.0)
         self.size_spin.setSingleStep(2.0)
@@ -1381,78 +1411,88 @@ class PropManagerPanel(MHGroupBox):
         self.size_spin.valueChanged.connect(self.update_live_particle_size)
         tweaks_layout.addWidget(self.size_spin)
 
-        # ==================================
-        # LIVE FX AUDIO/VISUAL MIXER TRACKS
-        # ==================================
-        tweaks_layout.addWidget(QLabel("<b><br>🎛️ Live Physics FX Mixer:</b>"))
+        # ---ON-THE-FLY ADVANCED PHYSICS CONSOLE ---
+        tweaks_layout.addWidget(QLabel("<b><br>🌍 Environmental Vector Forces:</b>"))
 
-        # Mixer Track 1: Vertical Flow (Gravity Y)
-        tweaks_layout.addWidget(QLabel("Vertical Jet Flow (Up/Down):"))
+        tweaks_layout.addWidget(QLabel("Vertical Jet Velocity Flow Force (Y Axis):"))
         self.mixer_grav_y = QDoubleSpinBox()
         self.mixer_grav_y.setRange(-50.0, 50.0)
-        self.mixer_grav_y.setSingleStep(1.0)
+        self.mixer_grav_y.setSingleStep(0.5)
         self.mixer_grav_y.setDecimals(2)
-        self.mixer_grav_y.setSuffix(" m/s²")
+        self.mixer_grav_y.setSuffix(" m/s2")
         self.mixer_grav_y.valueChanged.connect(self.update_mixer_gravity_y)
         tweaks_layout.addWidget(self.mixer_grav_y)
 
-        # Mixer Track 2: Crosswind Drift (Gravity X)
-        tweaks_layout.addWidget(QLabel("Horizontal Crosswind (Left/Right):"))
+        tweaks_layout.addWidget(QLabel("Horizontal Crosswind Drift Vector X Axis:"))
         self.mixer_grav_x = QDoubleSpinBox()
         self.mixer_grav_x.setRange(-50.0, 50.0)
-        self.mixer_grav_x.setSingleStep(1.0)
+        self.mixer_grav_x.setSingleStep(0.5)
         self.mixer_grav_x.setDecimals(2)
-        self.mixer_grav_x.setSuffix(" m/s²")
+        self.mixer_grav_x.setSuffix(" m/s2")
         self.mixer_grav_x.valueChanged.connect(self.update_mixer_gravity_x)
         tweaks_layout.addWidget(self.mixer_grav_x)
 
-        # Mixer Track 3: Spray Spread Angle
-        tweaks_layout.addWidget(QLabel("Conical Spray Spread Angle:"))
+        tweaks_layout.addWidget(QLabel("Conical Emission Spray Spread Angle:"))
         self.mixer_spread_angle = QDoubleSpinBox()
         self.mixer_spread_angle.setRange(0.0, 180.0)
         self.mixer_spread_angle.setSingleStep(5.0)
         self.mixer_spread_angle.setDecimals(1)
-        self.mixer_spread_angle.setSuffix(" °")
+        self.mixer_spread_angle.setSuffix(" deg")
         self.mixer_spread_angle.valueChanged.connect(self.update_mixer_spread_angle)
         tweaks_layout.addWidget(self.mixer_spread_angle)
 
         self.live_particle_tweaks_group.setLayout(tweaks_layout)
-        layout.addWidget(self.live_particle_tweaks_group)
+        master_layout.addWidget(self.live_particle_tweaks_group)
 
-        self.prop_fsm = PropStateMachine(panel_ref=self)
-
-        self.state_heartbeat_clock = QTimer(self)
-        self.state_heartbeat_clock.timeout.connect(self.execute_master_heartbeat_pulse)
-
-        self.state_heartbeat_clock.start(33) # Accelerated to 33ms target (~30 FPS simulation delta)
-
-        # =====================================================================
-        # >>> ENHANCEMENT: DECOUPLED PARTICLE SIMULATION PLAYBACK CONTROL >>>
-        # =====================================================================
-        self.fx_playback_group = MHGroupBox("FX Simulation Timeline Control")
+        self.fx_playback_group = MHGroupBox("Simulation Timeline Playback Control")
         fx_button_layout = QHBoxLayout()
 
-        self.play_fx_btn = QPushButton("▶ Play")
+        self.play_fx_btn = QPushButton("Play Loop")
         self.play_fx_btn.setStyleSheet("background-color: #2b6ca3; color: white; font-weight: bold;")
         self.play_fx_btn.clicked.connect(self.trigger_fx_play)
         fx_button_layout.addWidget(self.play_fx_btn)
 
-        self.pause_fx_btn = QPushButton("⏸ Pause")
+        self.pause_fx_btn = QPushButton("Pause System")
         self.pause_fx_btn.clicked.connect(self.trigger_fx_pause)
         fx_button_layout.addWidget(self.pause_fx_btn)
 
-        self.stop_fx_btn = QPushButton("⏹ Clear/Stop")
+        self.stop_fx_btn = QPushButton("Flush Pool")
         self.stop_fx_btn.setStyleSheet("background-color: #7b2b2b; color: white;")
         self.stop_fx_btn.clicked.connect(self.trigger_fx_stop)
         fx_button_layout.addWidget(self.stop_fx_btn)
 
         self.fx_playback_group.setLayout(fx_button_layout)
-        layout.addWidget(self.fx_playback_group)
-        
-        # Keep it visible to control playback globally
-        self.fx_playback_group.setVisible(True)
+        master_layout.addWidget(self.fx_playback_group)
 
-# Replace the execute_master_heartbeat_pulse method inside gui/prop_module.py with this setup:
+        self.prop_fsm = PropStateMachine(panel_ref=self)
+        self.state_heartbeat_clock = QTimer(self)
+        self.state_heartbeat_clock.timeout.connect(self.execute_master_heartbeat_pulse)
+        self.state_heartbeat_clock.start(33)
+
+    # ========================================
+    # INTERACTIVE CALLBACK METHODS & ROUTERS
+    # ========================================
+    def adjust_engine_frame_speed_cap(self, index):
+        """Maps animation selection choices directly to active system timer intervals."""
+        if not isinstance(index, int) or index < 0 or index > 2:
+            return
+            
+        fps_mapping_intervals = [66, 33, 16]
+        chosen_ms_delta = fps_mapping_intervals[index]
+        
+        if hasattr(self, 'state_heartbeat_clock') and self.state_heartbeat_clock:
+            self.state_heartbeat_clock.stop()
+            self.state_heartbeat_clock.start(chosen_ms_delta)
+            print(f"[Prop Studio Engine] Time matrix scaling re-synchronized to interval: {chosen_ms_delta}ms")
+
+    def _handle_dock_layout_lock(self, state):
+        """Queries properties to dynamically adjust window frame attributes without hardcoding."""
+        is_checked = (state == 2)
+        from mh2_official_tools.prop_panel.gui.prop_module import _standalone_studio_dock_instance
+        if _standalone_studio_dock_instance:
+            lock_func = _standalone_studio_dock_instance.property("set_dock_locked")
+            if lock_func:
+                lock_func(is_checked)
 
     def execute_master_heartbeat_pulse(self):
         """Unified frame heartbeat loop pumps FSM tracks and simulation states without overlapping."""
@@ -1880,17 +1920,16 @@ class PropManagerPanel(MHGroupBox):
 
     # =============================================
     # Dynamic LIVE MIXER SIGNAL CALLBACK RECEIVERS
-    # Natively mutates physics vectors on the fly!
     # =============================================
     def update_mixer_gravity_y(self, value):
-        """Live updates the vertical force vector track and commits changes cleanly to disk."""
+        """Updates the vertical force variable on the active emitter instance dynamically."""
         if self.current_prop and not self.is_updating_ui:
             if hasattr(self.current_prop, 'emitter') and self.current_prop.emitter:
-                self.current_prop.emitter.gravity[1] = float(value)
+                self.current_prop.emitter.gravity = float(value)
                 
                 prop_id_key = getattr(self.current_prop, 'prop_id', getattr(self.current_prop, 'name', '')).strip().lower()
                 if prop_id_key:
-                    # Update deep nested json keys safely matching your layout schema structures
+                    from mh2_official_tools.prop_panel.core.json_manager import update_prop_json_entry
                     update_prop_json_entry(prop_id_key, {
                         "physics": {
                             "gravity": {"y": float(value)}
@@ -1899,13 +1938,14 @@ class PropManagerPanel(MHGroupBox):
             self._trigger_viewport_redraw()
 
     def update_mixer_gravity_x(self, value):
-        """Live updates the crosswind force vector track and commits changes cleanly to disk."""
+        """Updates the horizontal force variable on the active emitter instance dynamically."""
         if self.current_prop and not self.is_updating_ui:
             if hasattr(self.current_prop, 'emitter') and self.current_prop.emitter:
-                self.current_prop.emitter.gravity[0] = float(value)
+                self.current_prop.emitter.gravity = float(value)
                 
                 prop_id_key = getattr(self.current_prop, 'prop_id', getattr(self.current_prop, 'name', '')).strip().lower()
                 if prop_id_key:
+                    from mh2_official_tools.prop_panel.core.json_manager import update_prop_json_entry
                     update_prop_json_entry(prop_id_key, {
                         "physics": {
                             "gravity": {"x": float(value)}
@@ -1914,13 +1954,14 @@ class PropManagerPanel(MHGroupBox):
             self._trigger_viewport_redraw()
 
     def update_mixer_spread_angle(self, value):
-        """Live constrains spray cones tighter or wider on the fly and saves configurations."""
+        """Updates the spray boundary cone angle on the active emitter instance dynamically."""
         if self.current_prop and not self.is_updating_ui:
             if hasattr(self.current_prop, 'emitter') and self.current_prop.emitter:
                 self.current_prop.emitter.spread_angle = float(value)
                 
                 prop_id_key = getattr(self.current_prop, 'prop_id', getattr(self.current_prop, 'name', '')).strip().lower()
                 if prop_id_key:
+                    from mh2_official_tools.prop_panel.core.json_manager import update_prop_json_entry
                     update_prop_json_entry(prop_id_key, {"spread_angle": float(value)})
             self._trigger_viewport_redraw()
 
@@ -2670,8 +2711,7 @@ class PropManagerPanel(MHGroupBox):
         """Processes real-time adjustment updates coming directly from sliders or mapping blueprints."""
         if not self.current_prop: 
             return
-            
-        # This keeps data structures completely safe, preventing format errors
+
         self.current_prop.position = np.array(new_pos, dtype=np.float64)
         self.current_prop.rotation = np.array(new_rot, dtype=np.float64)
         self.current_prop.scale = np.array(scl, dtype=np.float64)
